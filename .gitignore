@@ -1,0 +1,26 @@
+# Citlivé údaje - NIKDY necommitovat!
+.env
+pantry.txt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Klonované MCP servery
+mcp-cookidoo/
+
+# OS
+.DS_Store
+Thumbs.db

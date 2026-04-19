@@ -1,0 +1,15 @@
+# Suroviny, které máš obvykle doma a nekupuješ je.
+# Jeden název na řádek. Řádky začínající # jsou ignorovány.
+# Porovnává se bez diakritiky a částečnou shodou ("olivový olej" matchne "olej").
+#
+# Zkopíruj tento soubor: cp pantry.txt.example pantry.txt
+# a uprav podle svých zásob.
+
+sůl
+pepř
+voda
+cukr
+olej
+ocet
+máslo
+mouka
