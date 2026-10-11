@@ -308,43 +308,19 @@ def display_aggregated_ingredients(aggregated: list[AggregatedIngredient]) -> No
     print(f"\nCelkem: {len(aggregated)} ingrediencí ({len(shared)} společných)")
 
 
-def extract_ingredients_from_recipe_text(recipe_text: str) -> list[str]:
-    """Extract the ingredient list from the Cookidoo MCP text output.
+def ingredient_lines_from_recipe(recipe: dict) -> list[str]:
+    """Turn a recipe from the Cookidoo MCP server into ingredient text lines.
 
-    Cookidoo get_recipe_details returns text with an "Ingredients:" section
-    made of bullet points (•). This function extracts them.
+    Each ingredient is {"name": ..., "quantity": ...}; the result puts the
+    quantity first ("200 g hladká mouka") so parse_ingredients can read it.
 
     Args:
-        recipe_text: Raw text from get_recipe_details
+        recipe: Result of the get_recipe_details tool
 
     Returns:
         List of ingredients as text strings
     """
-    ingredients = []
-    in_ingredients_section = False
-
-    for line in recipe_text.split("\n"):
-        line = line.strip()
-
-        # Start of the ingredients section
-        if line.lower().startswith("ingredients:"):
-            in_ingredients_section = True
-            continue
-
-        # End of the section (start of the next one)
-        if in_ingredients_section and line.endswith(":") and not line.startswith("•"):
-            break
-
-        # Extract ingredients from bullet points
-        if in_ingredients_section and line.startswith("•"):
-            ingredient = line.lstrip("• ").strip()
-            # Cookidoo format: "name - description(quantity+unit)" or "name"
-            # Note: server.py must use ingredient.description (not .quantity)
-            if " - " in ingredient:
-                name_part, quantity_part = ingredient.rsplit(" - ", 1)
-                # Reformat to "quantity name"
-                ingredients.append(f"{quantity_part} {name_part}".strip())
-            else:
-                ingredients.append(ingredient)
-
-    return ingredients
+    return [
+        f"{ingredient.get('quantity', '')} {ingredient['name']}".strip()
+        for ingredient in recipe.get("ingredients", [])
+    ]

@@ -20,9 +20,6 @@ build/
 *.swp
 *.swo
 
-# Cloned MCP servers
-mcp-cookidoo/
-
 # Claude Code (local settings and worktrees)
 .claude/
 
