@@ -1,4 +1,4 @@
-# Citlivé údaje - NIKDY necommitovat!
+# Sensitive data - NEVER commit!
 .env
 pantry.txt
 
@@ -20,10 +20,10 @@ build/
 *.swp
 *.swo
 
-# Klonované MCP servery
+# Cloned MCP servers
 mcp-cookidoo/
 
-# Claude Code (lokální nastavení a worktrees)
+# Claude Code (local settings and worktrees)
 .claude/
 
 # OS

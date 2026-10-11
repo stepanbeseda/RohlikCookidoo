@@ -1,14 +1,7 @@
-"""Správa MCP připojení ke Cookidoo a Rohlik serverům.
+"""MCP connections to the Cookidoo and Rohlik servers.
 
-Tento modul používá async kontext manažery pro udržení otevřených spojení
-po celou dobu běhu aplikace.
-
-Co je async/await?
-- Normální funkce běží postupně: zavolej → čekej na výsledek → pokračuj
-- Async funkce umožňují "čekat" na pomalé operace (síť, disk)
-  bez blokování celého programu
-- await = "počkej na výsledek této operace"
-- async def = "tato funkce může používat await"
+Uses async context managers to keep both connections open for the whole
+run of the application.
 """
 
 import os
@@ -21,25 +14,25 @@ from config import AppConfig
 
 
 class MCPConnectionManager:
-    """Správce připojení k MCP serverům.
+    """Manages connections to the MCP servers.
 
-    Udržuje otevřená spojení ke Cookidoo (lokální) a Rohlik (remote) serverům.
-    Používá AsyncExitStack pro správné uzavření spojení při ukončení.
+    Keeps stdio connections to the Cookidoo and Rohlik servers open and uses
+    an AsyncExitStack to close them cleanly on exit.
     """
 
     def __init__(self, config: AppConfig):
         self.config = config
-        # AsyncExitStack drží otevřené všechny kontexty (spojení)
-        # a při uzavření je všechny korektně zavře
+        # AsyncExitStack keeps every entered context (connection) open
+        # and closes them all on aclose()
         self._exit_stack = AsyncExitStack()
         self.cookidoo_session: ClientSession | None = None
         self.rohlik_session: ClientSession | None = None
 
     async def connect_cookidoo(self) -> None:
-        """Připojení ke Cookidoo MCP serveru (lokální, přes stdio).
+        """Connect to the Cookidoo MCP server (local, over stdio).
 
-        Cookidoo server běží jako lokální proces — spustíme ho příkazem
-        `fastmcp run server.py` a komunikujeme přes stdin/stdout.
+        The server runs as a local process started with `fastmcp run server.py`
+        and communicates over stdin/stdout.
         """
         server_path = os.path.abspath(
             os.path.join(self.config.cookidoo_server_path, "server.py")
@@ -51,7 +44,7 @@ class MCPConnectionManager:
                 f"Klonuj repo: git clone https://github.com/alexandrepa/mcp-cookidoo.git mcp-cookidoo"
             )
 
-        # Parametry pro spuštění MCP serveru jako subprocess
+        # Parameters for starting the MCP server as a subprocess
         server_params = StdioServerParameters(
             command="fastmcp",
             args=["run", server_path],
@@ -62,13 +55,13 @@ class MCPConnectionManager:
             },
         )
 
-        # stdio_client je async kontext manažer — musíme ho držet otevřený
+        # stdio_client is an async context manager and has to stay open
         transport = await self._exit_stack.enter_async_context(
             stdio_client(server_params)
         )
         read_stream, write_stream = transport
 
-        # Vytvoříme MCP session a inicializujeme ji
+        # Create and initialize the MCP session
         session = await self._exit_stack.enter_async_context(
             ClientSession(read_stream, write_stream)
         )
@@ -78,11 +71,11 @@ class MCPConnectionManager:
         print("Připojeno ke Cookidoo MCP serveru.")
 
     async def connect_rohlik(self) -> None:
-        """Připojení k Rohlik MCP serveru (self-hosted, lokální stdio).
+        """Connect to the Rohlik MCP server (local, over stdio).
 
-        Používáme @tomaspavlin/rohlik-mcp se zafixovanou verzí. Oficiální
-        mcp.rohlik.cz se přihlašuje přes OAuth v prohlížeči, což z tohoto
-        CLI nejde, a jeho názvy nástrojů se mohou lišit.
+        Uses @tomaspavlin/rohlik-mcp pinned to a fixed version. The official
+        mcp.rohlik.cz signs in through OAuth in a browser, which this CLI
+        cannot do, and its tool names may differ.
         """
         server_params = StdioServerParameters(
             command="npx",
@@ -109,26 +102,26 @@ class MCPConnectionManager:
         print("Připojeno k Rohlik MCP serveru.")
 
     async def call_cookidoo_tool(self, name: str, arguments: dict | None = None) -> str:
-        """Zavolá nástroj na Cookidoo MCP serveru.
+        """Call a tool on the Cookidoo MCP server.
 
         Args:
-            name: Název nástroje (např. "connect_to_cookidoo", "get_recipe_details")
-            arguments: Argumenty pro nástroj
+            name: Tool name (e.g. "connect_to_cookidoo", "get_recipe_details")
+            arguments: Tool arguments
 
         Returns:
-            Textový výsledek z nástroje
+            Text result of the tool
         """
         if not self.cookidoo_session:
             raise ConnectionError("Nejsi připojen ke Cookidoo. Zavolej connect_cookidoo().")
 
         result = await self.cookidoo_session.call_tool(name, arguments or {})
 
-        # MCP výsledek může obsahovat více částí — spojíme textové
+        # An MCP result can have several parts; join the text ones
         texts = [part.text for part in result.content if hasattr(part, "text")]
         return "\n".join(texts)
 
     async def call_rohlik_tool(self, name: str, arguments: dict | None = None) -> str:
-        """Zavolá nástroj na Rohlik MCP serveru."""
+        """Call a tool on the Rohlik MCP server."""
         if not self.rohlik_session:
             raise ConnectionError("Nejsi připojen k Rohlíku. Zavolej connect_rohlik().")
 
@@ -137,12 +130,10 @@ class MCPConnectionManager:
         return "\n".join(texts)
 
     async def list_tools(self, server: str = "both") -> dict:
-        """Vypíše dostupné nástroje z MCP serverů.
-
-        Užitečné pro zjištění, jaké nástroje Rohlik server nabízí.
+        """List the tools available on the MCP servers.
 
         Args:
-            server: "cookidoo", "rohlik", nebo "both"
+            server: "cookidoo", "rohlik", or "both"
         """
         tools = {}
 
@@ -163,7 +154,7 @@ class MCPConnectionManager:
         return tools
 
     async def close(self) -> None:
-        """Uzavře všechna spojení."""
+        """Close all connections."""
         await self._exit_stack.aclose()
         self.cookidoo_session = None
         self.rohlik_session = None

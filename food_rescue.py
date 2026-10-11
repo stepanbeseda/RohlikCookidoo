@@ -1,13 +1,14 @@
-"""Kontrola zlevnenych produktu z programu Zachran jidlo na Rohlik.cz.
+"""Checks discounted products from the Zachraň jídlo (food rescue) program on Rohlik.cz.
 
-Self-hosted MCP (@tomaspavlin/rohlik-mcp) nema filtr "sales" na search_products,
-a textovy vystup neodlisi explicitne "Zachran jidlo" od ostatnich slev.
-Pouzivame tedy get_discounted_items — stahne vsechny aktualni slevy naraz —
-a krizime je s ingrediencemi podle nazvu.
+The self-hosted MCP (@tomaspavlin/rohlik-mcp) has no "sales" filter on
+search_products, and its text output does not explicitly tell "Zachraň jídlo"
+apart from other discounts. So get_discounted_items is called (it returns one
+page of current discounts) and the results are matched against the
+ingredients by name.
 
-Produkty s kratkodobou slevou (napr. "(-26 % do 19. 4.)") se povazuji
-za Zachran jidlo, produkty s "(Vyhodna cena)" / "(Nabidka do ...)"
-za dlouhodobe akce.
+Products with a short-term discount (e.g. "(-26 % do 19. 4.)") are treated
+as food rescue, products tagged "(Výhodná cena)" / "(Nabídka do ...)"
+as long-term promotions.
 """
 
 import re
@@ -19,8 +20,8 @@ from mcp_clients import MCPConnectionManager
 
 
 @dataclass
-class ZachranMatch:
-    """Nalezena shoda mezi ingredienci a zlevnenym produktem."""
+class FoodRescueMatch:
+    """A match between an ingredient and a discounted product."""
     ingredient_name: str
     product_name: str
     original_price: float
@@ -29,8 +30,8 @@ class ZachranMatch:
     product_id: str
 
 
-# Format jednoho produktu v get_discounted_items:
-#   • NAZEV (oznaceni slevy)
+# Format of one product in get_discounted_items:
+#   • NAME (discount tag)
 #     Price: X CZK (was Y CZK)
 #     Unit price: ...
 #     Amount: ...
@@ -46,12 +47,12 @@ _DISCOUNT_BLOCK_RE = re.compile(
     re.MULTILINE,
 )
 
-# "-26 % do 19. 4." — kratkodoba sleva = zachran jidlo
+# "-26 % do 19. 4.": a short-term discount = food rescue
 _SHORT_TERM_TAG_RE = re.compile(r"-\s*(\d+)\s*%\s*do\s*\d+\.\s*\d+\.?")
 
 
 def _normalize(text: str) -> str:
-    """Odstrani diakritiku a prevede na mala pismena."""
+    """Strip diacritics and lowercase the text."""
     normalized = unicodedata.normalize("NFD", text)
     without_diacritics = "".join(
         c for c in normalized if unicodedata.category(c) != "Mn"
@@ -60,7 +61,7 @@ def _normalize(text: str) -> str:
 
 
 def _ingredient_matches_product(ingredient_name: str, product_name: str) -> bool:
-    """Zjisti, zda nazev produktu odpovida ingredienci (fuzzy matching)."""
+    """Check whether a product name matches an ingredient (fuzzy matching)."""
     norm_ingredient = _normalize(ingredient_name)
     norm_product = _normalize(product_name)
 
@@ -74,14 +75,14 @@ def _ingredient_matches_product(ingredient_name: str, product_name: str) -> bool
     return False
 
 
-async def check_zachran_jidlo(
+async def check_food_rescue(
     mcp: MCPConnectionManager,
     ingredients: list[ParsedIngredient],
-) -> list[ZachranMatch]:
-    """Zkontroluje, zda jsou pro ingredience dostupne zlevnene produkty.
+) -> list[FoodRescueMatch]:
+    """Check whether discounted products are available for the ingredients.
 
-    Jedno volani get_discounted_items — stahne vsechny aktualni slevy
-    a filtrujeme je proti ingredientum.
+    Makes a single get_discounted_items call (one page of current discounts)
+    and matches the results against the ingredients.
     """
     try:
         raw = await mcp.call_rohlik_tool("get_discounted_items", {})
@@ -89,13 +90,13 @@ async def check_zachran_jidlo(
         print(f"  Nepodarilo se zkontrolovat Zachran jidlo: {e}")
         return []
 
-    matches: list[ZachranMatch] = []
+    matches: list[FoodRescueMatch] = []
 
     for m in _DISCOUNT_BLOCK_RE.finditer(raw or ""):
         tag = m.group("tag") or ""
         short_term = _SHORT_TERM_TAG_RE.search(tag)
         if not short_term:
-            # dlouhodoba akce — neni Zachran jidlo
+            # long-term promotion, not food rescue
             continue
 
         name = m.group("name").strip()
@@ -107,7 +108,7 @@ async def check_zachran_jidlo(
 
         for ing in ingredients:
             if _ingredient_matches_product(ing.name, name):
-                matches.append(ZachranMatch(
+                matches.append(FoodRescueMatch(
                     ingredient_name=ing.name,
                     product_name=name,
                     original_price=orig_price,
@@ -120,8 +121,8 @@ async def check_zachran_jidlo(
     return matches
 
 
-def display_zachran_matches(matches: list[ZachranMatch]) -> None:
-    """Vypise nalezene shody se zlevnenymi produkty."""
+def display_food_rescue_matches(matches: list[FoodRescueMatch]) -> None:
+    """Print matches with discounted products."""
     if not matches:
         print("  Zadne Zachran jidlo produkty nenalezeny pro tyto ingredience.")
         return

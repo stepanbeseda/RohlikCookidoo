@@ -1,11 +1,11 @@
-"""Mapování ingrediencí na produkty v Rohlik.cz.
+"""Maps ingredients to products on Rohlik.cz.
 
-Rohlik MCP nástroje (@tomaspavlin/rohlik-mcp, self-hosted):
-- search_products(product_name, limit): jeden dotaz naráz, vrací formátovaný text
-- add_to_cart(products=[{product_id, quantity}]): přidání do košíku
-- get_cart_content(): obsah košíku
+Rohlik MCP tools (@tomaspavlin/rohlik-mcp, self-hosted):
+- search_products(product_name, limit): one query at a time, returns formatted text
+- add_to_cart(products=[{product_id, quantity}]): adds to the cart
+- get_cart_content(): cart content
 
-Formát odpovědi search_products (plain text):
+Format of the search_products response (plain text):
     Found 3 products:
 
     • Kitchin Rýže jasmínová (Kitchin)
@@ -24,7 +24,7 @@ from mcp_clients import MCPConnectionManager
 
 @dataclass
 class RohlikProduct:
-    """Produkt nalezený na Rohlik.cz."""
+    """A product found on Rohlik.cz."""
     id: str
     name: str
     price: float
@@ -34,17 +34,17 @@ class RohlikProduct:
     is_discounted: bool = False
     discount_percent: int = 0
     original_price: float | None = None
-    is_zachran_jidlo: bool = False
+    is_food_rescue: bool = False
     in_stock: bool = True
 
 
 def _is_bio_product(name: str, brand: str) -> bool:
-    """Zjistí, zda je produkt bio/organický."""
+    """Check whether a product is organic (bio)."""
     text = f"{name} {brand}".lower()
     return any(kw in text for kw in ["bio ", "bio-", "organic", "eko "])
 
 
-# Regex pro jeden produktový blok v odpovědi search_products:
+# Regex for one product block in the search_products response:
 #   • <name> (<brand>)
 #     Price: <price> Kč [(was <orig> Kč, -<pct>%)]
 #     Amount: <amount>
@@ -61,7 +61,7 @@ _PRODUCT_BLOCK_RE = re.compile(
 
 
 def _parse_products_from_text(text: str) -> list[RohlikProduct]:
-    """Zparsuje formátovanou textovou odpověď search_products na seznam produktů."""
+    """Parse the formatted text response of search_products into a list of products."""
     products = []
     for m in _PRODUCT_BLOCK_RE.finditer(text or ""):
         name = m.group("name").strip()
@@ -83,10 +83,10 @@ def _parse_products_from_text(text: str) -> list[RohlikProduct]:
             is_discounted=is_discounted,
             discount_percent=discount_pct,
             original_price=original_price,
-            # self-hosted MCP neoznačuje "zachraň jídlo" explicitně;
-            # bereme jako proxy každou slevu (lepší heuristika by chtěla
-            # křížit s get_discounted_items, pokud bude potřeba)
-            is_zachran_jidlo=is_discounted,
+            # the self-hosted MCP does not mark "Zachraň jídlo" (food rescue)
+            # explicitly; any discount is used as a proxy (a better heuristic
+            # would cross-check with get_discounted_items)
+            is_food_rescue=is_discounted,
             in_stock=True,
         ))
     return products
@@ -96,14 +96,14 @@ def filter_by_preference(
     products: list[RohlikProduct],
     preference: QualityPreference,
 ) -> list[RohlikProduct]:
-    """Seřadí/filtruje produkty podle uživatelské preference."""
-    # Jen produkty skladem
+    """Sort/filter products by the user's preference."""
+    # In-stock products only
     products = [p for p in products if p.in_stock]
 
     if preference == QualityPreference.BIO:
         return sorted(products, key=lambda p: (not p.is_bio, p.price))
-    elif preference == QualityPreference.ZACHRAN_JIDLO:
-        return sorted(products, key=lambda p: (not p.is_zachran_jidlo, p.price))
+    elif preference == QualityPreference.FOOD_RESCUE:
+        return sorted(products, key=lambda p: (not p.is_food_rescue, p.price))
     elif preference == QualityPreference.CHEAPEST:
         return sorted(products, key=lambda p: p.price)
     else:  # STANDARD
@@ -114,11 +114,10 @@ async def search_products_batch(
     mcp: MCPConnectionManager,
     search_terms: list[str],
 ) -> dict[str, list[RohlikProduct]]:
-    """Vyhledá produkty na Rohlíku.
+    """Search for products on Rohlik.
 
-    Self-hosted MCP podporuje jen jeden dotaz naráz (search_products),
-    takže voláme sekvenčně. Pro kompatibilitu s volajícím kódem
-    vracíme stejnou strukturu dict[term, list[products]].
+    The self-hosted MCP supports only one query at a time (search_products),
+    so the calls are sequential. Returns dict[term, list[products]].
     """
     all_results: dict[str, list[RohlikProduct]] = {}
 
@@ -137,7 +136,7 @@ async def find_products_for_ingredient(
     ingredient: ParsedIngredient,
     preference: QualityPreference,
 ) -> list[RohlikProduct]:
-    """Vyhledá produkty na Rohlíku pro danou ingredienci."""
+    """Search Rohlik for products matching the given ingredient."""
     batch_results = await search_products_batch(mcp, [ingredient.search_term])
     products = batch_results.get(ingredient.search_term, [])
     return filter_by_preference(products, preference)
@@ -147,11 +146,11 @@ async def add_to_cart(
     mcp: MCPConnectionManager,
     items: list[dict],
 ) -> str:
-    """Přidá produkty do košíku na Rohlik.cz.
+    """Add products to the cart on Rohlik.cz.
 
     Args:
-        items: Seznam {"product_id": int|str, "quantity": int}.
-               product_id je převeden na int (vyžadováno API).
+        items: List of {"product_id": int|str, "quantity": int}.
+               product_id is converted to int (required by the API).
     """
     products = [
         {"product_id": int(it["product_id"]), "quantity": int(it.get("quantity", 1))}
@@ -165,7 +164,7 @@ async def add_to_cart(
 
 
 async def get_cart(mcp: MCPConnectionManager) -> str:
-    """Zobrazí obsah košíku."""
+    """Return the cart content."""
     return await mcp.call_rohlik_tool("get_cart_content", {})
 
 
@@ -173,7 +172,7 @@ def select_product_interactive(
     products: list[RohlikProduct],
     ingredient_name: str,
 ) -> RohlikProduct | None:
-    """Nechá uživatele vybrat produkt z nabídky."""
+    """Let the user pick a product from the offered ones."""
     if not products:
         print(f"  Zadne produkty nalezeny pro: {ingredient_name}")
         return None
@@ -184,7 +183,7 @@ def select_product_interactive(
         tags = []
         if p.is_bio:
             tags.append("[BIO]")
-        if p.is_zachran_jidlo:
+        if p.is_food_rescue:
             tags.append("[ZACHRAN]")
         tag_str = " ".join(tags)
         if tag_str:
