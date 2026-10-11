@@ -1,11 +1,11 @@
-"""RohlikCookidoo — hlavní vstupní bod aplikace.
+"""RohlikCookidoo: application entry point.
 
-Propojuje Cookidoo (recepty z Thermomixu) s Rohlik.cz (nákup potravin).
+Connects Cookidoo (Thermomix recipes) with Rohlik.cz (grocery shopping).
 
-Použití:
-    python main.py              # Jeden recept → ingredience → košík
-    python main.py --week       # Týdenní plán → agregované ingredience → košík
-    python main.py --discover   # Vypíše dostupné MCP nástroje
+Usage:
+    python main.py              # One recipe -> ingredients -> cart
+    python main.py --week       # Weekly plan -> aggregated ingredients -> cart
+    python main.py --discover   # List available MCP tools
 """
 
 import asyncio
@@ -25,11 +25,11 @@ from ingredient_parser import (
     _format_qty,
 )
 from rohlik_mapper import search_products_batch, add_to_cart, select_product_interactive, filter_by_preference, RohlikProduct
-from zachran_jidlo import check_zachran_jidlo, display_zachran_matches
+from food_rescue import check_food_rescue, display_food_rescue_matches
 
 
 def _print_cart_result(result: str, cart_items: list) -> None:
-    """Zobrazí výsledek přidání do košíku s jasným status."""
+    """Print the result of adding to the cart with a clear status."""
     try:
         data = json.loads(result)
     except (json.JSONDecodeError, TypeError):
@@ -57,15 +57,15 @@ def _print_cart_result(result: str, cart_items: list) -> None:
 
 
 def _calculate_packages_needed(agg: AggregatedIngredient, product: RohlikProduct) -> int:
-    """Odhadne počet balení potřebných pro požadované množství.
+    """Estimate how many packages cover the required quantity.
 
-    Např. potřeba 700g, balení 500g → 2 balení.
-    Pokud nelze odhadnout, vrátí 1.
+    E.g. 700 g needed, 500 g package -> 2 packages.
+    Returns 1 when no estimate is possible.
     """
     if agg.total_quantity is None or not product.amount:
         return 1
 
-    # Zkusíme vytáhnout číslo z product.amount (např. "500 g", "1 kg", "0.5 l")
+    # Try to extract a number from product.amount (e.g. "500 g", "1 kg", "0.5 l")
     amount_match = re.search(r"([\d.,]+)\s*(g|kg|ml|l|dl)", product.amount, re.IGNORECASE)
     if not amount_match:
         return 1
@@ -73,7 +73,7 @@ def _calculate_packages_needed(agg: AggregatedIngredient, product: RohlikProduct
     pkg_qty = float(amount_match.group(1).replace(",", "."))
     pkg_unit = amount_match.group(2).lower()
 
-    # Normalizujeme na stejnou jednotku jako agg
+    # Normalize to the same unit as agg
     from ingredient_parser import UNIT_TO_GRAMS, UNIT_TO_ML, _to_base
     needed = agg.total_quantity
     needed_unit = agg.unit or ""
@@ -93,8 +93,8 @@ async def _run_shopping_flow(
     mcp: MCPConnectionManager,
     aggregated: list[AggregatedIngredient],
 ) -> None:
-    """Společná část nákupního flow: search → zachraň jídlo → výběr → košík."""
-    # Filtruj suroviny, ktere mame doma
+    """Shared part of the shopping flow: search -> food rescue -> selection -> cart."""
+    # Filter out ingredients we have at home
     pantry = load_pantry()
     if pantry:
         pantry_items = [a for a in aggregated if is_pantry_item(a.name, pantry)]
@@ -113,16 +113,16 @@ async def _run_shopping_flow(
 
     preference = get_quality_preference()
 
-    # Batch search všech ingrediencí (jedno MCP volání před interakcí)
+    # Batch search of all ingredients (MCP calls happen before the interaction)
     search_terms = [a.search_term for a in aggregated]
     print(f"\nVyhledavam {len(search_terms)} ingredienci na Rohlik.cz...")
     all_products = await search_products_batch(mcp, search_terms)
 
     print("Kontroluji Zachran jidlo nabidky...")
-    zachran_matches = await check_zachran_jidlo(mcp, aggregated)
-    display_zachran_matches(zachran_matches)
+    food_rescue_matches = await check_food_rescue(mcp, aggregated)
+    display_food_rescue_matches(food_rescue_matches)
 
-    # Interaktivní výběr (bez MCP — spojení může být nečinné)
+    # Interactive selection (no MCP calls; the connection may sit idle)
     cart_items = []  # list[(RohlikProduct, quantity)]
     for agg in aggregated:
         products = filter_by_preference(all_products.get(agg.search_term, []), preference)
@@ -153,16 +153,16 @@ async def _run_shopping_flow(
 
 
 def parse_recipe_ids_from_plan(plan_text: str) -> list[tuple[str, str]]:
-    """Vytáhne seznam (recipe_id, recipe_name) z textu get_planned_recipes_this_week.
+    """Extract (recipe_id, recipe_name) pairs from get_planned_recipes_this_week text.
 
-    Formát řádku: '  • r59322 — Název receptu'
+    Line format: '  • r59322 — Recipe name'
     """
     pattern = re.compile(r"•\s+(r\w+)\s+—\s+(.+)")
     return [(m.group(1).strip(), m.group(2).strip()) for m in pattern.finditer(plan_text)]
 
 
 async def weekly_shopping_flow(mcp: MCPConnectionManager) -> None:
-    """Stáhne týdenní plán z Cookidoo, agreguje ingredience a přidá do košíku."""
+    """Fetch the weekly plan from Cookidoo, aggregate ingredients and add them to the cart."""
     print("\nPripojuji se ke Cookidoo...")
     auth_result = await mcp.call_cookidoo_tool("connect_to_cookidoo")
     print(f"  {auth_result}")
@@ -180,7 +180,7 @@ async def weekly_shopping_flow(mcp: MCPConnectionManager) -> None:
 
     print(f"\nNalezeno {len(recipe_ids)} receptu. Stahuji ingredience...")
 
-    # Stáhni ingredience ze všech receptů
+    # Fetch ingredients of all recipes
     recipes_ingredients = []
     for recipe_id, recipe_name in recipe_ids:
         print(f"  • {recipe_name} ({recipe_id})...")
@@ -191,7 +191,7 @@ async def weekly_shopping_flow(mcp: MCPConnectionManager) -> None:
         ingredients = parse_ingredients(raw)
         recipes_ingredients.append((recipe_name, ingredients))
 
-    # Agregace
+    # Aggregation
     aggregated = aggregate_ingredients(recipes_ingredients)
     display_aggregated_ingredients(aggregated)
 
@@ -199,7 +199,7 @@ async def weekly_shopping_flow(mcp: MCPConnectionManager) -> None:
 
 
 async def single_recipe_flow(mcp: MCPConnectionManager) -> None:
-    """Stáhne jeden recept dle ID a přidá ingredience do košíku."""
+    """Fetch one recipe by ID and add its ingredients to the cart."""
     print("\nPripojuji se ke Cookidoo...")
     auth_result = await mcp.call_cookidoo_tool("connect_to_cookidoo")
     print(f"  {auth_result}")
@@ -231,7 +231,7 @@ async def single_recipe_flow(mcp: MCPConnectionManager) -> None:
         qty = f"{ing.quantity} {ing.unit or ''}" if ing.quantity else "dle chuti"
         print(f"  {i}. {ing.name} ({qty.strip()})")
 
-    # Zabalíme jako AggregatedIngredient pro jednotné flow
+    # Wrap as AggregatedIngredient to share the same flow
     from ingredient_parser import AggregatedIngredient
     aggregated = [
         AggregatedIngredient(
@@ -248,7 +248,7 @@ async def single_recipe_flow(mcp: MCPConnectionManager) -> None:
 
 
 async def discover_tools(mcp: MCPConnectionManager) -> None:
-    """Vypíše všechny dostupné nástroje z připojených MCP serverů."""
+    """List all tools available on the connected MCP servers."""
     tools = await mcp.list_tools()
     for server_name, server_tools in tools.items():
         print(f"\n{'='*60}")
@@ -264,7 +264,7 @@ async def discover_tools(mcp: MCPConnectionManager) -> None:
 
 
 async def main() -> None:
-    """Hlavní funkce aplikace."""
+    """Application entry point."""
     week_mode = "--week" in sys.argv
     discover_mode = "--discover" in sys.argv
 

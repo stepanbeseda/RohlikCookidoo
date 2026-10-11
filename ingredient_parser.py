@@ -1,10 +1,10 @@
-"""Parser ingrediencí z Cookidoo receptů.
+"""Parser for ingredients of Cookidoo recipes.
 
-Převádí surový text ingrediencí (např. "200 g hladká mouka") na strukturovaná data
-s odděleným množstvím, jednotkou a názvem suroviny.
+Turns raw ingredient text (e.g. "200 g hladká mouka") into structured data
+with separate quantity, unit and ingredient name.
 
-Také podporuje agregaci ingrediencí z více receptů — sčítá stejné suroviny
-a normalizuje jednotky (gramů → g, kilogramů → kg, ...).
+Also aggregates ingredients across recipes: it sums identical ingredients
+and normalizes units (gramů -> g, kilogramů -> kg, ...).
 """
 
 import re
@@ -14,30 +14,30 @@ from dataclasses import dataclass, field
 
 @dataclass
 class ParsedIngredient:
-    """Jedna zparsovaná ingredience z receptu."""
-    original: str        # Původní text: "200 g hladká mouka"
-    name: str            # Název suroviny: "hladká mouka"
-    quantity: float | None  # Množství: 200.0
-    unit: str | None     # Jednotka: "g"
-    search_term: str     # Co hledat na Rohlíku: "hladká mouka"
+    """A single parsed recipe ingredient."""
+    original: str        # Original text: "200 g hladká mouka"
+    name: str            # Ingredient name: "hladká mouka"
+    quantity: float | None  # Quantity: 200.0
+    unit: str | None     # Unit: "g"
+    search_term: str     # What to search for on Rohlik: "hladká mouka"
 
 
-# Regex pro rozpoznání množství a jednotky na začátku řetězce
-# Příklady: "200 g", "1.5 kg", "100 ml", "2 lžíce", "3 ks"
-# Zahrnuje jak zkratky (g, kg) tak plné české tvary (gramů, kilogramů)
+# Regex matching a quantity and unit at the start of the string
+# Examples: "200 g", "1.5 kg", "100 ml", "2 lžíce", "3 ks"
+# Covers abbreviations (g, kg) as well as full Czech forms (gramů, kilogramů)
 QUANTITY_PATTERN = re.compile(
-    r"^([\d.,]+(?:\s*/\s*[\d.,]+)?)"  # číslo (nebo zlomek: 1/2)
+    r"^([\d.,]+(?:\s*/\s*[\d.,]+)?)"  # number (or a fraction: 1/2)
     r"\s+"
-    r"(g|kg|mg|ml|l|dl|cl"  # zkratky
-    r"|gramů|gramu|gram|gramy"  # gramy — všechny tvary
+    r"(g|kg|mg|ml|l|dl|cl"  # abbreviations
+    r"|gramů|gramu|gram|gramy"  # grams, all forms
     r"|kilogramů|kilogramu|kilogram|kilogramy"
     r"|mililitrů|mililitru|mililitr|mililitry"
     r"|litrů|litru|litr|litry"
     r"|decilitrů|decilitru|decilitr|decilitry"
-    r"|lžíce|lžíci|lžic"  # lžíce
-    r"|lžička|lžičky|lžiček|lžičku"  # lžička
-    r"|čajová\s+lžička|čajové\s+lžičky|čajových\s+lžiček|čajovou\s+lžičku"  # čajová lžička
-    r"|polévková\s+lžíce|polévkové\s+lžíce|polévkových\s+lžic"  # polévková lžíce
+    r"|lžíce|lžíci|lžic"  # tablespoon
+    r"|lžička|lžičky|lžiček|lžičku"  # teaspoon
+    r"|čajová\s+lžička|čajové\s+lžičky|čajových\s+lžiček|čajovou\s+lžičku"  # teaspoon (long form)
+    r"|polévková\s+lžíce|polévkové\s+lžíce|polévkových\s+lžic"  # tablespoon (long form)
     r"|ks|kus|kusy|kusů|kusem"
     r"|hrst|hrstí|hrsti"
     r"|balení|bal"
@@ -53,15 +53,15 @@ QUANTITY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Vzor pro ingredience bez množství (např. "sůl", "pepř podle chuti")
+# Pattern for ingredients without a quantity (e.g. "sůl", "pepř podle chuti")
 PLAIN_PATTERN = re.compile(r"^(.+?)(?:\s+podle chuti)?$", re.IGNORECASE)
 
 
 def _clean_search_term(name: str) -> str:
-    """Vyčistí název ingredience pro vyhledávání na Rohlíku.
+    """Clean an ingredient name for searching on Rohlik.
 
-    - Odstraní přídavná jména za čárkou: "kaparů, solených" → "kaparů"
-    - Odstraní obsah v závorkách: "mléko (plnotučné)" → "mléko"
+    - Drops adjectives after a comma: "kaparů, solených" -> "kaparů"
+    - Drops text in parentheses: "mléko (plnotučné)" -> "mléko"
     """
     term = name.split(",")[0].strip()
     term = re.sub(r"\(.*?\)", "", term).strip()
@@ -69,9 +69,9 @@ def _clean_search_term(name: str) -> str:
 
 
 def _parse_number(text: str) -> float:
-    """Převede textové číslo na float.
+    """Convert a textual number to float.
 
-    Zvládá: "200", "1.5", "1,5", "1/2"
+    Handles: "200", "1.5", "1,5", "1/2"
     """
     text = text.strip().replace(",", ".")
     if "/" in text:
@@ -81,13 +81,13 @@ def _parse_number(text: str) -> float:
 
 
 def parse_single_ingredient(text: str) -> ParsedIngredient:
-    """Zparsuje jednu ingredienci z textového řetězce.
+    """Parse a single ingredient from a text string.
 
     Args:
-        text: Text ingredience, např. "200 g hladká mouka"
+        text: Ingredient text, e.g. "200 g hladká mouka"
 
     Returns:
-        ParsedIngredient s rozdělenými údaji
+        ParsedIngredient with the separated fields
     """
     text = text.strip()
     if not text:
@@ -95,7 +95,7 @@ def parse_single_ingredient(text: str) -> ParsedIngredient:
             original=text, name="", quantity=None, unit=None, search_term=""
         )
 
-    # Zkusíme rozpoznat množství + jednotku + název
+    # Try to match quantity + unit + name
     match = QUANTITY_PATTERN.match(text)
     if match:
         quantity_str, unit, name = match.groups()
@@ -109,7 +109,7 @@ def parse_single_ingredient(text: str) -> ParsedIngredient:
             search_term=_clean_search_term(name),
         )
 
-    # Zkusíme jen číslo + název (bez jednotky, např. "3 vejce")
+    # Try just number + name (no unit, e.g. "3 vejce")
     number_match = re.match(r"^([\d.,]+)\s+(.+)$", text)
     if number_match:
         quantity = _parse_number(number_match.group(1))
@@ -122,7 +122,7 @@ def parse_single_ingredient(text: str) -> ParsedIngredient:
             search_term=_clean_search_term(name),
         )
 
-    # Žádné množství — jen název suroviny
+    # No quantity, only the ingredient name
     return ParsedIngredient(
         original=text,
         name=text,
@@ -133,13 +133,13 @@ def parse_single_ingredient(text: str) -> ParsedIngredient:
 
 
 def parse_ingredients(raw_ingredients: list[str]) -> list[ParsedIngredient]:
-    """Zparsuje seznam ingrediencí z Cookidoo receptu.
+    """Parse a list of ingredients of a Cookidoo recipe.
 
     Args:
-        raw_ingredients: Seznam textových ingrediencí
+        raw_ingredients: List of ingredient texts
 
     Returns:
-        Seznam ParsedIngredient objektů
+        List of ParsedIngredient objects
     """
     return [
         parse_single_ingredient(text)
@@ -150,35 +150,35 @@ def parse_ingredients(raw_ingredients: list[str]) -> list[ParsedIngredient]:
 
 @dataclass
 class AggregatedIngredient:
-    """Agregovaná ingredience z více receptů."""
-    name: str                   # normalizovaný název: "hladká mouka"
-    total_quantity: float | None  # celkové množství: 700.0
-    unit: str | None            # kanonická jednotka: "g"
+    """An ingredient aggregated across recipes."""
+    name: str                   # normalized name: "hladká mouka"
+    total_quantity: float | None  # total quantity: 700.0
+    unit: str | None            # canonical unit: "g"
     sources: list[str] = field(default_factory=list)  # ["Palačinky (500 g)", "Buchty (200 g)"]
-    search_term: str = ""       # co hledat na Rohlíku
+    search_term: str = ""       # what to search for on Rohlik
 
 
-# Normalizace jednotek na kanonické zkratky
+# Unit normalization to canonical abbreviations
 UNIT_CANONICAL: dict[str, str] = {
-    # Gramy
+    # Grams
     "gramů": "g", "gramu": "g", "gram": "g", "gramy": "g",
-    # Kilogramy
+    # Kilograms
     "kilogramů": "kg", "kilogramu": "kg", "kilogram": "kg", "kilogramy": "kg",
-    # Mililitry
+    # Millilitres
     "mililitrů": "ml", "mililitru": "ml", "mililitr": "ml", "mililitry": "ml",
-    # Litry
+    # Litres
     "litrů": "l", "litru": "l", "litr": "l", "litry": "l",
-    # Decilitry
+    # Decilitres
     "decilitrů": "dl", "decilitru": "dl", "decilitr": "dl", "decilitry": "dl",
-    # Lžíce
+    # Tablespoon
     "lžíci": "lžíce", "lžic": "lžíce",
     "polévková lžíce": "lžíce", "polévkové lžíce": "lžíce", "polévkových lžic": "lžíce",
-    # Lžička
+    # Teaspoon
     "lžičky": "lžička", "lžiček": "lžička", "lžičku": "lžička",
     "čajová lžička": "lžička", "čajové lžičky": "lžička", "čajových lžiček": "lžička", "čajovou lžičku": "lžička",
-    # Kusy
+    # Pieces
     "kus": "ks", "kusy": "ks", "kusů": "ks", "kusem": "ks",
-    # Ostatní
+    # Other
     "hrstí": "hrst", "hrsti": "hrst",
     "plátky": "plátek", "plátků": "plátek", "plátkem": "plátek",
     "stroužky": "stroužek", "stroužků": "stroužek", "stroužkem": "stroužek",
@@ -189,13 +189,13 @@ UNIT_CANONICAL: dict[str, str] = {
     "snítky": "snítka", "snítek": "snítka",
 }
 
-# Převodní koeficienty na základní jednotku (g, ml)
+# Conversion factors to the base unit (g, ml)
 UNIT_TO_GRAMS: dict[str, float] = {"g": 1.0, "kg": 1000.0, "mg": 0.001}
 UNIT_TO_ML: dict[str, float] = {"ml": 1.0, "l": 1000.0, "dl": 100.0, "cl": 10.0}
 
 
 def _normalize_name(text: str) -> str:
-    """Odstraní diakritiku a převede na malá písmena pro porovnávání jmen."""
+    """Strip diacritics and lowercase the text for name comparison."""
     normalized = unicodedata.normalize("NFD", text)
     without_diacritics = "".join(
         c for c in normalized if unicodedata.category(c) != "Mn"
@@ -204,7 +204,7 @@ def _normalize_name(text: str) -> str:
 
 
 def _canonical_unit(unit: str | None) -> str | None:
-    """Převede jednotku na kanonický tvar (gramů → g)."""
+    """Convert a unit to its canonical form (gramů -> g)."""
     if unit is None:
         return None
     lower = unit.lower().strip()
@@ -212,7 +212,7 @@ def _canonical_unit(unit: str | None) -> str | None:
 
 
 def _to_base(quantity: float, unit: str) -> tuple[float, str]:
-    """Převede množství na základní jednotku (kg→g, l→ml)."""
+    """Convert a quantity to the base unit (kg -> g, l -> ml)."""
     if unit in UNIT_TO_GRAMS:
         return quantity * UNIT_TO_GRAMS[unit], "g"
     if unit in UNIT_TO_ML:
@@ -221,7 +221,7 @@ def _to_base(quantity: float, unit: str) -> tuple[float, str]:
 
 
 def _format_qty(qty: float | None, unit: str | None) -> str:
-    """Formátuje množství s jednotkou pro zobrazení."""
+    """Format a quantity with its unit for display."""
     if qty is None:
         return "dle chuti"
     qty_str = str(int(qty)) if qty == int(qty) else f"{qty:.1f}"
@@ -231,17 +231,17 @@ def _format_qty(qty: float | None, unit: str | None) -> str:
 def aggregate_ingredients(
     recipes_ingredients: list[tuple[str, list["ParsedIngredient"]]],
 ) -> list[AggregatedIngredient]:
-    """Agreguje ingredience z více receptů — sčítá společné suroviny.
+    """Aggregate ingredients across recipes, summing shared ones.
 
     Args:
-        recipes_ingredients: Seznam dvojic (název_receptu, [ParsedIngredient])
+        recipes_ingredients: List of (recipe_name, [ParsedIngredient]) pairs
 
     Returns:
-        Seznam AggregatedIngredient — každá ingredience jen jednou,
-        s celkovým množstvím a přehledem zdrojů.
+        List of AggregatedIngredient: each ingredient once, with the total
+        quantity and an overview of its sources.
     """
-    # Klíč: (normalizované jméno, kanonická jednotka nebo skupina)
-    # Hodnota: AggregatedIngredient
+    # Key: (normalized name, canonical unit or unit group)
+    # Value: AggregatedIngredient
     aggregated: dict[tuple[str, str], AggregatedIngredient] = {}
 
     for recipe_name, ingredients in recipes_ingredients:
@@ -249,7 +249,7 @@ def aggregate_ingredients(
             canonical_unit = _canonical_unit(ing.unit)
             norm_name = _normalize_name(ing.name)
 
-            # Určíme skupinu jednotky pro sčítání (g+kg = "weight", ml+l = "volume")
+            # Unit group used for summing (g+kg = "weight", ml+l = "volume")
             if canonical_unit in UNIT_TO_GRAMS:
                 unit_group = "weight"
             elif canonical_unit in UNIT_TO_ML:
@@ -262,7 +262,7 @@ def aggregate_ingredients(
             source_str = f"{recipe_name} ({_format_qty(ing.quantity, canonical_unit)})"
 
             if key not in aggregated:
-                # Převedeme na základní jednotku pro sčítání
+                # Convert to the base unit for summing
                 if ing.quantity is not None and canonical_unit:
                     base_qty, base_unit = _to_base(ing.quantity, canonical_unit)
                 else:
@@ -289,7 +289,7 @@ def aggregate_ingredients(
 
 
 def display_aggregated_ingredients(aggregated: list[AggregatedIngredient]) -> None:
-    """Vypíše agregované ingredience — společné i jedinečné."""
+    """Print aggregated ingredients, shared ones first."""
     shared = [a for a in aggregated if len(a.sources) > 1]
     unique = [a for a in aggregated if len(a.sources) == 1]
 
@@ -309,16 +309,16 @@ def display_aggregated_ingredients(aggregated: list[AggregatedIngredient]) -> No
 
 
 def extract_ingredients_from_recipe_text(recipe_text: str) -> list[str]:
-    """Extrahuje seznam ingrediencí z textového výstupu Cookidoo MCP.
+    """Extract the ingredient list from the Cookidoo MCP text output.
 
-    Cookidoo get_recipe_details vrací text obsahující sekci "Ingredients:"
-    s odrážkami (•). Tato funkce je extrahuje.
+    Cookidoo get_recipe_details returns text with an "Ingredients:" section
+    made of bullet points (•). This function extracts them.
 
     Args:
-        recipe_text: Surový text z get_recipe_details
+        recipe_text: Raw text from get_recipe_details
 
     Returns:
-        Seznam ingrediencí jako textové řetězce
+        List of ingredients as text strings
     """
     ingredients = []
     in_ingredients_section = False
@@ -326,23 +326,23 @@ def extract_ingredients_from_recipe_text(recipe_text: str) -> list[str]:
     for line in recipe_text.split("\n"):
         line = line.strip()
 
-        # Detekce začátku sekce ingrediencí
+        # Start of the ingredients section
         if line.lower().startswith("ingredients:"):
             in_ingredients_section = True
             continue
 
-        # Detekce konce sekce (začátek další sekce)
+        # End of the section (start of the next one)
         if in_ingredients_section and line.endswith(":") and not line.startswith("•"):
             break
 
-        # Extrakce ingrediencí z odrážek
+        # Extract ingredients from bullet points
         if in_ingredients_section and line.startswith("•"):
             ingredient = line.lstrip("• ").strip()
-            # Cookidoo formát: "název - popis(množství+jednotka)" nebo "název"
-            # Pozn.: server.py musí používat ingredient.description (ne .quantity)
+            # Cookidoo format: "name - description(quantity+unit)" or "name"
+            # Note: server.py must use ingredient.description (not .quantity)
             if " - " in ingredient:
                 name_part, quantity_part = ingredient.rsplit(" - ", 1)
-                # Přeformátujeme na "množství název"
+                # Reformat to "quantity name"
                 ingredients.append(f"{quantity_part} {name_part}".strip())
             else:
                 ingredients.append(ingredient)

@@ -1,4 +1,4 @@
-"""Testy pro parser ingrediencí."""
+"""Tests for the ingredient parser."""
 
 from ingredient_parser import (
     parse_single_ingredient,
@@ -10,7 +10,7 @@ from ingredient_parser import (
 
 
 class TestParseSingleIngredient:
-    """Testy pro parsování jednotlivých ingrediencí."""
+    """Tests for parsing single ingredients."""
 
     def test_with_quantity_and_unit(self):
         result = parse_single_ingredient("200 g hladká mouka")
@@ -75,7 +75,7 @@ class TestParseSingleIngredient:
         assert result.name == ""
         assert result.quantity is None
 
-    def test_stroužek(self):
+    def test_clove(self):
         result = parse_single_ingredient("2 stroužky česnek")
         assert result.name == "česnek"
         assert result.quantity == 2.0
@@ -83,7 +83,7 @@ class TestParseSingleIngredient:
 
 
 class TestParseIngredients:
-    """Testy pro parsování seznamu ingrediencí."""
+    """Tests for parsing a list of ingredients."""
 
     def test_multiple_ingredients(self):
         raw = ["200 g mouka", "100 ml mléko", "sůl"]
@@ -100,7 +100,7 @@ class TestParseIngredients:
 
 
 class TestExtractFromRecipeText:
-    """Testy pro extrakci ingrediencí z textu receptu."""
+    """Tests for extracting ingredients from recipe text."""
 
     def test_basic_extraction(self):
         text = """Recipe Details:
@@ -135,7 +135,7 @@ Steps:
 
 
 class TestAggregateIngredients:
-    """Testy pro agregaci ingrediencí z více receptů."""
+    """Tests for aggregating ingredients across recipes."""
 
     def _make(self, text: str):
         return parse_single_ingredient(text)
@@ -152,7 +152,7 @@ class TestAggregateIngredients:
         assert result[0].unit == "g"
 
     def test_convertible_units_kg_and_g(self):
-        """200g + 0.5kg = 700g (převod na gram)."""
+        """200g + 0.5kg = 700g (converted to grams)."""
         recipes = [
             ("Recept A", [self._make("200 g mouka")]),
             ("Recept B", [self._make("0.5 kg mouka")]),
@@ -174,7 +174,7 @@ class TestAggregateIngredients:
         assert result[0].unit == "ml"
 
     def test_different_units_kept_separate(self):
-        """2 lžíce olej + 100g olej = 2 záznamy (nelze sčítat)."""
+        """2 lžíce olej + 100g olej = 2 entries (cannot be summed)."""
         recipes = [
             ("Recept A", [self._make("2 lžíce olivový olej")]),
             ("Recept B", [self._make("100 g olivový olej")]),
@@ -183,7 +183,7 @@ class TestAggregateIngredients:
         assert len(result) == 2
 
     def test_sources_tracked(self):
-        """Každý zdroj je uložen v sources."""
+        """Every source is stored in sources."""
         recipes = [
             ("Palačinky", [self._make("500 g mouka")]),
             ("Buchty", [self._make("200 g mouka")]),
@@ -194,7 +194,7 @@ class TestAggregateIngredients:
         assert any("Buchty" in s for s in result[0].sources)
 
     def test_unique_ingredient_one_source(self):
-        """Ingredience z jednoho receptu má jeden zdroj."""
+        """An ingredient from one recipe has one source."""
         recipes = [
             ("Tiramisu", [self._make("250 g mascarpone")]),
         ]
@@ -202,7 +202,7 @@ class TestAggregateIngredients:
         assert len(result[0].sources) == 1
 
     def test_unit_normalization(self):
-        """'gramů' se normalizuje na 'g' a sčítá správně."""
+        """'gramů' is normalized to 'g' and summed correctly."""
         recipes = [
             ("Recept A", [self._make("200 gramů rýže")]),
             ("Recept B", [self._make("100 g rýže")]),
@@ -213,7 +213,7 @@ class TestAggregateIngredients:
         assert result[0].unit == "g"
 
     def test_no_quantity_ingredient(self):
-        """Ingredience bez množství (sůl, pepř) se zachová."""
+        """Ingredients without a quantity (sůl, pepř) are kept."""
         recipes = [
             ("Recept A", [self._make("sůl")]),
             ("Recept B", [self._make("sůl")]),
@@ -223,7 +223,7 @@ class TestAggregateIngredients:
         assert result[0].total_quantity is None
 
     def test_multiple_recipes_multiple_ingredients(self):
-        """Kompletní test s více recepty a ingrediencemi."""
+        """Full test with several recipes and ingredients."""
         recipes = [
             ("Palačinky", parse_ingredients(["200 g hladká mouka", "300 ml mléko", "2 ks vejce"])),
             ("Omeleta", parse_ingredients(["4 ks vejce", "100 ml mléko", "sůl"])),
@@ -237,7 +237,7 @@ class TestAggregateIngredients:
         assert result_by_name["hladká mouka"].total_quantity == 500.0
         # mléko: 300 + 100 = 400 ml
         assert result_by_name["mléko"].total_quantity == 400.0
-        # vejce: 2 + 4 + 1 = 7 ks (bez jednotky, jako čísla)
+        # vejce: 2 + 4 + 1 = 7 (no unit, plain numbers)
         assert result_by_name["vejce"].total_quantity == 7.0
-        # sůl: žádné množství
+        # sůl: no quantity
         assert result_by_name["sůl"].total_quantity is None

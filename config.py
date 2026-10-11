@@ -1,4 +1,4 @@
-"""Konfigurace aplikace — načtení přihlašovacích údajů a uživatelských preferencí."""
+"""Application configuration: credentials and user preferences."""
 
 import os
 import unicodedata
@@ -9,16 +9,16 @@ from dotenv import load_dotenv
 
 
 class QualityPreference(str, Enum):
-    """Preference kvality potravin při nákupu na Rohlíku."""
+    """Food quality preference used when picking products on Rohlik."""
     BIO = "bio"
     STANDARD = "standard"
-    ZACHRAN_JIDLO = "zachran_jidlo"
+    FOOD_RESCUE = "food_rescue"
     CHEAPEST = "cheapest"
 
 
 @dataclass
 class AppConfig:
-    """Konfigurace aplikace s přihlašovacími údaji."""
+    """Application configuration with credentials."""
     cookidoo_email: str
     cookidoo_password: str
     rohlik_email: str
@@ -27,10 +27,10 @@ class AppConfig:
 
 
 def load_config() -> AppConfig:
-    """Načte konfiguraci z .env souboru.
+    """Load configuration from the .env file.
 
     Raises:
-        ValueError: Pokud chybí povinná proměnná prostředí.
+        ValueError: If a required environment variable is missing.
     """
     load_dotenv()
 
@@ -58,7 +58,7 @@ def load_config() -> AppConfig:
 
 
 def get_quality_preference() -> QualityPreference:
-    """Interaktivně se zeptá uživatele na preferenci kvality potravin."""
+    """Ask the user interactively for their food quality preference."""
     print("\nJakou kvalitu potravin preferuješ?")
     print("  1. BIO / organické produkty")
     print("  2. Standardní (výchozí)")
@@ -68,7 +68,7 @@ def get_quality_preference() -> QualityPreference:
     choices = {
         "1": QualityPreference.BIO,
         "2": QualityPreference.STANDARD,
-        "3": QualityPreference.ZACHRAN_JIDLO,
+        "3": QualityPreference.FOOD_RESCUE,
         "4": QualityPreference.CHEAPEST,
     }
 
@@ -82,7 +82,7 @@ def get_quality_preference() -> QualityPreference:
 
 
 def _normalize(text: str) -> str:
-    """Odstraní diakritiku a převede na malá písmena."""
+    """Strip diacritics and lowercase the text."""
     normalized = unicodedata.normalize("NFD", text)
     without_diacritics = "".join(
         c for c in normalized if unicodedata.category(c) != "Mn"
@@ -91,10 +91,10 @@ def _normalize(text: str) -> str:
 
 
 def load_pantry(path: str = "pantry.txt") -> set[str]:
-    """Nacte seznam surovin, ktere mame doma, z pantry.txt.
+    """Load the list of ingredients kept at home from pantry.txt.
 
-    Vraci set normalizovanych nazvu (bez diakritiky, lowercase).
-    Pokud soubor neexistuje, vraci prazdny set.
+    Returns a set of normalized names (no diacritics, lowercase).
+    Returns an empty set if the file does not exist.
     """
     pantry_path = os.path.join(os.path.dirname(__file__), path)
     if not os.path.exists(pantry_path):
@@ -110,10 +110,10 @@ def load_pantry(path: str = "pantry.txt") -> set[str]:
 
 
 def is_pantry_item(name: str, pantry: set[str]) -> bool:
-    """Zjisti, zda ingredience odpovida necemu v domaci zasobarni.
+    """Check whether an ingredient matches something in the home pantry.
 
-    Pouziva castecne matchovani — "extra panensky olivovy olej"
-    matchne "olivovy olej" z pantry a naopak.
+    Uses partial matching: "extra panensky olivovy olej" matches
+    "olivovy olej" from the pantry and vice versa.
     """
     norm = _normalize(name)
     for item in pantry:
@@ -122,7 +122,7 @@ def is_pantry_item(name: str, pantry: set[str]) -> bool:
     return False
 
 
-# Pokud spustíš tento soubor přímo, otestuje se načtení konfigurace
+# Running this file directly checks that the configuration loads
 if __name__ == "__main__":
     try:
         config = load_config()

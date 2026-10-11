@@ -1,4 +1,4 @@
-# Citlivé údaje - NIKDY necommitovat!
+# Sensitive data - NEVER commit!
 .env
 pantry.txt
 
@@ -11,6 +11,8 @@ venv/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
+.ruff_cache/
 
 # IDE
 .vscode/
@@ -18,8 +20,11 @@ build/
 *.swp
 *.swo
 
-# Klonované MCP servery
+# Cloned MCP servers
 mcp-cookidoo/
+
+# Claude Code (local settings and worktrees)
+.claude/
 
 # OS
 .DS_Store
