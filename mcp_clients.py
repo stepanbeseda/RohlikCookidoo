@@ -80,9 +80,9 @@ class MCPConnectionManager:
     async def connect_rohlik(self) -> None:
         """Připojení k Rohlik MCP serveru (self-hosted, lokální stdio).
 
-        Používáme @tomaspavlin/rohlik-mcp, protože hostovaný mcp.rohlik.cz
-        má rozbitou interní autentizaci (v5/login/access_token vrací 401
-        pro validní credentials).
+        Používáme @tomaspavlin/rohlik-mcp se zafixovanou verzí. Oficiální
+        mcp.rohlik.cz se přihlašuje přes OAuth v prohlížeči, což z tohoto
+        CLI nejde, a jeho názvy nástrojů se mohou lišit.
         """
         server_params = StdioServerParameters(
             command="npx",
