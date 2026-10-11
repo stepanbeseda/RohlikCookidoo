@@ -1,0 +1,113 @@
+"""Tests for the pure helpers of the Cookidoo MCP server (no network)."""
+
+from datetime import date
+from types import SimpleNamespace
+
+from config import read_pantry_lines
+from cookidoo_server import (
+    custom_recipe_to_dict,
+    recipe_to_dict,
+    week_start,
+    week_to_dict,
+)
+from main import planned_recipe_ids
+
+
+def _day(day_id, title, recipes, custom_ids=()):
+    return SimpleNamespace(
+        id=day_id,
+        title=title,
+        recipes=[SimpleNamespace(id=i, name=n) for i, n in recipes],
+        customer_recipe_ids=list(custom_ids),
+    )
+
+
+class TestWeekStart:
+    def test_monday_stays(self):
+        assert week_start(date(2026, 10, 12)) == date(2026, 10, 12)
+
+    def test_sunday_goes_back_to_monday(self):
+        assert week_start(date(2026, 10, 18)) == date(2026, 10, 12)
+
+    def test_next_week(self):
+        assert week_start(date(2026, 10, 14), 1) == date(2026, 10, 19)
+
+    def test_previous_week_across_year(self):
+        assert week_start(date(2027, 1, 1), -1) == date(2026, 12, 21)
+
+
+class TestWeekToDict:
+    def test_skips_days_without_recipes(self):
+        days = [
+            _day("2026-10-12", "Pondělí", [("r1", "Svíčková")]),
+            _day("2026-10-13", "Úterý", []),
+        ]
+        result = week_to_dict(days, date(2026, 10, 12))
+        assert result["week_start"] == "2026-10-12"
+        assert result["recipe_count"] == 1
+        assert [d["title"] for d in result["days"]] == ["Pondělí"]
+
+    def test_marks_custom_recipes(self):
+        days = [_day("2026-10-12", "Pondělí", [("r1", "A"), ("01ABC", "B")], ["01ABC"])]
+        recipes = week_to_dict(days, date(2026, 10, 12))["days"][0]["recipes"]
+        assert recipes == [
+            {"id": "r1", "name": "A", "custom": False},
+            {"id": "01ABC", "name": "B", "custom": True},
+        ]
+
+    def test_empty_week(self):
+        result = week_to_dict([], date(2026, 10, 12))
+        assert result["recipe_count"] == 0
+        assert planned_recipe_ids(result) == []
+
+    def test_feeds_planned_recipe_ids(self):
+        days = [
+            _day("2026-10-12", "Pondělí", [("r1", "A")]),
+            _day("2026-10-14", "Středa", [("r2", "B"), ("r3", "C")]),
+        ]
+        plan = week_to_dict(days, date(2026, 10, 12))
+        assert planned_recipe_ids(plan) == [("r1", "A"), ("r2", "B"), ("r3", "C")]
+
+
+class TestRecipeToDict:
+    def test_catalogue_recipe(self):
+        recipe = SimpleNamespace(
+            id="r1",
+            name="Palačinky",
+            serving_size=4,
+            url="https://cookidoo.cz/recipes/recipe/cs/r1",
+            ingredients=[
+                SimpleNamespace(name="hladká mouka", description="200 g"),
+                SimpleNamespace(name="sůl", description=""),
+            ],
+        )
+        result = recipe_to_dict(recipe)
+        assert result["servings"] == 4
+        assert result["ingredients"] == [
+            {"name": "hladká mouka", "quantity": "200 g"},
+            {"name": "sůl", "quantity": ""},
+        ]
+
+    def test_custom_recipe_keeps_free_text(self):
+        recipe = SimpleNamespace(
+            id="01ABC", name="Moje", serving_size=2, url="u", ingredients=["200 g mouky"]
+        )
+        assert custom_recipe_to_dict(recipe)["ingredients"] == [
+            {"name": "200 g mouky", "quantity": ""}
+        ]
+
+
+class TestReadPantryLines:
+    def test_skips_comments_and_blank_lines(self, tmp_path):
+        pantry = tmp_path / "pantry.txt"
+        pantry.write_text("# doma\nsůl\n\n  hladká mouka  \n", encoding="utf-8")
+        assert read_pantry_lines(str(pantry)) == ["sůl", "hladká mouka"]
+
+    def test_missing_file(self, tmp_path):
+        assert read_pantry_lines(str(tmp_path / "none.txt")) == []
+
+    def test_path_from_environment(self, tmp_path, monkeypatch):
+        pantry = tmp_path / "p.txt"
+        pantry.write_text("pepř\n", encoding="utf-8")
+        monkeypatch.setenv("PANTRY_PATH", str(pantry))
+        assert read_pantry_lines() == ["pepř"]

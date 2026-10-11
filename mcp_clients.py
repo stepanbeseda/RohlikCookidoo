@@ -4,11 +4,12 @@ Uses async context managers to keep both connections open for the whole
 run of the application.
 """
 
+import json
 import os
 from contextlib import AsyncExitStack
 
 from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from mcp.client.stdio import get_default_environment, stdio_client
 
 from config import AppConfig
 
@@ -31,28 +32,27 @@ class MCPConnectionManager:
     async def connect_cookidoo(self) -> None:
         """Connect to the Cookidoo MCP server (local, over stdio).
 
-        The server runs as a local process started with `fastmcp run server.py`
-        and communicates over stdin/stdout.
+        The server is cookidoo_server.py from this repository, started as a
+        local process with `fastmcp run` and reached over stdin/stdout.
         """
-        server_path = os.path.abspath(
-            os.path.join(self.config.cookidoo_server_path, "server.py")
+        server_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "cookidoo_server.py"
         )
 
-        if not os.path.exists(server_path):
-            raise FileNotFoundError(
-                f"Cookidoo server nenalezen: {server_path}\n"
-                f"Klonuj repo: git clone https://github.com/alexandrepa/mcp-cookidoo.git mcp-cookidoo"
-            )
+        # Each server gets only its own credentials, not the whole environment
+        env = {
+            **get_default_environment(),
+            "COOKIDOO_EMAIL": self.config.cookidoo_email,
+            "COOKIDOO_PASSWORD": self.config.cookidoo_password,
+        }
+        for optional in ("COOKIDOO_COUNTRY", "COOKIDOO_LANGUAGE", "PANTRY_PATH"):
+            if os.getenv(optional):
+                env[optional] = os.environ[optional]
 
-        # Parameters for starting the MCP server as a subprocess
         server_params = StdioServerParameters(
             command="fastmcp",
             args=["run", server_path],
-            env={
-                **os.environ,
-                "COOKIDOO_EMAIL": self.config.cookidoo_email,
-                "COOKIDOO_PASSWORD": self.config.cookidoo_password,
-            },
+            env=env,
         )
 
         # stdio_client is an async context manager and has to stay open
@@ -81,7 +81,7 @@ class MCPConnectionManager:
             command="npx",
             args=["-y", "@tomaspavlin/rohlik-mcp@3.3.0"],
             env={
-                **os.environ,
+                **get_default_environment(),
                 "ROHLIK_USERNAME": self.config.rohlik_email,
                 "ROHLIK_PASSWORD": self.config.rohlik_password,
                 "ROHLIK_BASE_URL": "https://www.rohlik.cz",
@@ -101,24 +101,29 @@ class MCPConnectionManager:
         self.rohlik_session = session
         print("Připojeno k Rohlik MCP serveru.")
 
-    async def call_cookidoo_tool(self, name: str, arguments: dict | None = None) -> str:
+    async def call_cookidoo_tool(self, name: str, arguments: dict | None = None) -> dict:
         """Call a tool on the Cookidoo MCP server.
 
         Args:
-            name: Tool name (e.g. "connect_to_cookidoo", "get_recipe_details")
+            name: Tool name (e.g. "get_planned_recipes_this_week", "get_recipe_details")
             arguments: Tool arguments
 
         Returns:
-            Text result of the tool
+            Structured result of the tool
+
+        Raises:
+            RuntimeError: If the tool reports an error.
         """
         if not self.cookidoo_session:
             raise ConnectionError("Nejsi připojen ke Cookidoo. Zavolej connect_cookidoo().")
 
         result = await self.cookidoo_session.call_tool(name, arguments or {})
-
-        # An MCP result can have several parts; join the text ones
-        texts = [part.text for part in result.content if hasattr(part, "text")]
-        return "\n".join(texts)
+        text = "\n".join(part.text for part in result.content if hasattr(part, "text"))
+        if result.isError:
+            raise RuntimeError(text)
+        if result.structuredContent is not None:
+            return result.structuredContent
+        return json.loads(text)
 
     async def call_rohlik_tool(self, name: str, arguments: dict | None = None) -> str:
         """Call a tool on the Rohlik MCP server."""

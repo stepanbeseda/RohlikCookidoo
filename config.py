@@ -23,7 +23,6 @@ class AppConfig:
     cookidoo_password: str
     rohlik_email: str
     rohlik_password: str
-    cookidoo_server_path: str
 
 
 def load_config() -> AppConfig:
@@ -53,7 +52,6 @@ def load_config() -> AppConfig:
         cookidoo_password=required_vars["COOKIDOO_PASSWORD"],
         rohlik_email=required_vars["RHL_EMAIL"],
         rohlik_password=required_vars["RHL_PASS"],
-        cookidoo_server_path=os.getenv("COOKIDOO_SERVER_PATH", "./mcp-cookidoo"),
     )
 
 
@@ -90,23 +88,30 @@ def _normalize(text: str) -> str:
     return without_diacritics.lower().strip()
 
 
-def load_pantry(path: str = "pantry.txt") -> set[str]:
-    """Load the list of ingredients kept at home from pantry.txt.
+def read_pantry_lines(path: str | None = None) -> list[str]:
+    """Read the pantry file and return its items as written.
+
+    The file is `path`, or PANTRY_PATH, or pantry.txt next to this module.
+    Blank lines and lines starting with # are skipped. Returns an empty list
+    if the file does not exist.
+    """
+    pantry_path = path or os.getenv("PANTRY_PATH") or os.path.join(
+        os.path.dirname(__file__), "pantry.txt"
+    )
+    if not os.path.exists(pantry_path):
+        return []
+
+    with open(pantry_path, encoding="utf-8") as f:
+        lines = [line.strip() for line in f]
+    return [line for line in lines if line and not line.startswith("#")]
+
+
+def load_pantry(path: str | None = None) -> set[str]:
+    """Load the list of ingredients kept at home.
 
     Returns a set of normalized names (no diacritics, lowercase).
-    Returns an empty set if the file does not exist.
     """
-    pantry_path = os.path.join(os.path.dirname(__file__), path)
-    if not os.path.exists(pantry_path):
-        return set()
-
-    items = set()
-    with open(pantry_path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#"):
-                items.add(_normalize(line))
-    return items
+    return {_normalize(item) for item in read_pantry_lines(path)}
 
 
 def is_pantry_item(name: str, pantry: set[str]) -> bool:
@@ -129,6 +134,5 @@ if __name__ == "__main__":
         print("Konfigurace načtena úspěšně!")
         print(f"  Cookidoo email: {config.cookidoo_email.split('@')[0][:3]}***@{config.cookidoo_email.split('@')[-1]}")
         print(f"  Rohlik email: {config.rohlik_email.split('@')[0][:3]}***@{config.rohlik_email.split('@')[-1]}")
-        print(f"  Cookidoo server: {config.cookidoo_server_path}")
     except ValueError as e:
         print(f"Chyba: {e}")

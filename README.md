@@ -26,15 +26,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### Cookidoo MCP server
-
-Projekt používá [alexandrepa/mcp-cookidoo](https://github.com/alexandrepa/mcp-cookidoo) ve verzi commitu `6d45166` s úpravou z tohoto repa. Úprava přidává nástroje `get_planned_recipes_this_week` a `get_pantry_items` a opravuje výpis množství u ingrediencí. Bez ní příkaz `/tyden` nefunguje.
-
-```bash
-git clone https://github.com/alexandrepa/mcp-cookidoo.git mcp-cookidoo
-git -C mcp-cookidoo checkout 6d45166
-git -C mcp-cookidoo apply ../patches/mcp-cookidoo-tyden.patch
-```
+Cookidoo MCP server je součástí repa (`cookidoo_server.py`), nic dalšího se neklonuje. Stojí na neoficiální knihovně [cookidoo-api](https://github.com/miaucl/cookidoo-api) a z Cookidoo jen čte.
 
 ### Spíž
 
@@ -55,7 +47,7 @@ Do sekce `"mcpServers"` v `claude_desktop_config.json` přidej:
 ```json
 "cookidoo": {
   "command": "/absolutni/cesta/k/projektu/venv/bin/fastmcp",
-  "args": ["run", "/absolutni/cesta/k/projektu/mcp-cookidoo/server.py"],
+  "args": ["run", "/absolutni/cesta/k/projektu/cookidoo_server.py"],
   "env": {
     "COOKIDOO_EMAIL": "tvuj@email.com",
     "COOKIDOO_PASSWORD": "tvoje_heslo",
@@ -78,6 +70,8 @@ Do sekce `"mcpServers"` v `claude_desktop_config.json` přidej:
 ```
 
 Server `chrome` je potřeba jen pro příkaz `/url` a vyžaduje nainstalovaný Google Chrome.
+
+Cookidoo server čte recepty z českého Cookidoo. Jinou zemi nastavíš proměnnými `COOKIDOO_COUNTRY` (výchozí `cz`) a `COOKIDOO_LANGUAGE` (výchozí `cs`) v bloku `env`.
 
 Po uložení Claude Desktop ukonči (Cmd+Q) a znovu otevři.
 
@@ -121,6 +115,8 @@ Ty:     ano
 Claude: Přidáno 12 produktů do košíku.
 ```
 
+Nákup na příští týden: napiš „/tyden na příští týden“. Nástroj `get_planned_recipes_this_week` má parametr `week_offset` (0 = tento týden, 1 = příští).
+
 **`/recept <ID>`** udělá totéž pro jeden recept. ID je část adresy receptu na Cookidoo začínající písmenem `r`.
 
 **`/url <odkaz>`** přečte recept z libovolného webu, vytáhne ingredience a nabídne nákup.
@@ -156,31 +152,32 @@ python main.py --discover   # vypíše dostupné MCP nástroje
 python main.py --debug      # při chybě vypíše celý traceback
 ```
 
-CLI vyžaduje naklonovaný a upravený `mcp-cookidoo` stejně jako Claude Desktop.
+CLI spouští stejný `cookidoo_server.py` jako Claude Desktop. Cestu ke spíži lze změnit proměnnou `PANTRY_PATH`.
 
 ---
 
 ## Známá omezení
 
-- **Jazyk receptů.** Použitý Cookidoo server se přihlašuje s francouzskou lokalizací (`fr-FR`). Recepty z kalendáře se vrací, ale názvy ingrediencí nemusí být česky a hledání na Rohlíku pak selže.
+- **Tvary slov.** Cookidoo vrací ingredience ve 2. pádě („másla“, „soli“). CLI je neumí převést na základní tvar, takže položku spíže „máslo“ s nimi nespáruje a na Rohlíku hledá „másla“. V Claude Desktop to řeší model.
+- **Vlastní recepty.** Recepty, které sis v Cookidoo vytvořil sám, mají ingredience jako volný text bez odděleného množství. CLI je nepodporuje.
 - **Opakované spuštění.** Před přidáním se nekontroluje obsah košíku. Druhé `/tyden` přidá všechno znovu.
 - **Počet balení.** Odhaduje se jen tam, kde recept i produkt používají hmotnost nebo objem. Cookidoo uvádí tekutiny v gramech, Rohlík v litrech, v takovém případě se přidá jedno balení.
-- **Zápis množství.** Parser v CLI nezvládne tvary jako `200g` bez mezery, rozsah `1-2` nebo `½`.
+- **Zápis množství.** Parser v CLI nezvládne tvary jako `200g` bez mezery, rozsah `1-2`, `½` nebo „1 vrchovatá čajová lžička“.
 - **Zachraň jídlo.** CLI kontroluje jen první stránku slev a označení bere podle formátu slevy, ne podle skutečné kategorie Zachraň jídlo.
-- **Licence závislosti.** Repozitář `alexandrepa/mcp-cookidoo` nemá licenční soubor.
+- **Neoficiální API.** Cookidoo nemá veřejné API. Knihovna `cookidoo-api` i Rohlik MCP balíček používají neveřejná rozhraní, která se mohou kdykoli změnit.
 
 ## Bezpečnost
 
 - Hesla v `claude_desktop_config.json` a `.env` leží na disku v čitelné podobě. Soubory nesdílej a necommituj; `.env` i `pantry.txt` jsou v `.gitignore`.
 - Verze balíčků spouštěných přes `npx` jsou v návodu zafixované. Při změně verze si ověř, co instaluješ, balíček dostává tvoje heslo.
-- Rohlik MCP balíček používá neveřejné API Rohlíku. Služba se může kdykoli změnit.
+- Každý MCP server dostává jen své vlastní přihlašovací údaje.
 
 ## Řešení problémů
 
 - Servery se v Claude Desktop nezobrazují: zkontroluj logy v `~/Library/Logs/Claude/` a syntaxi JSON v konfiguraci.
 - Ověř, že funguje `venv/bin/fastmcp --version` a `npx --version`.
-- Claude hlásí „Not connected“: Cookidoo nástroje vyžadují nejdřív `connect_to_cookidoo`. S nastavenými Project Instructions to Claude dělá sám.
-- Chybí nástroj `get_planned_recipes_this_week`: na `mcp-cookidoo` není aplikovaná úprava z `patches/`.
+- Cookidoo hlásí „login failed“: zkontroluj `COOKIDOO_EMAIL` a `COOKIDOO_PASSWORD`. Přihlášení si ověříš nástrojem `connect_to_cookidoo`.
+- Týdenní plán je prázdný: recepty musí být v kalendáři na webu cookidoo.cz v daném týdnu (pondělí až neděle).
 
 ## Vývoj
 

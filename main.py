@@ -18,7 +18,7 @@ from config import load_config, get_quality_preference, load_pantry, is_pantry_i
 from mcp_clients import MCPConnectionManager
 from ingredient_parser import (
     parse_ingredients,
-    extract_ingredients_from_recipe_text,
+    ingredient_lines_from_recipe,
     aggregate_ingredients,
     display_aggregated_ingredients,
     AggregatedIngredient,
@@ -152,28 +152,25 @@ async def _run_shopping_flow(
         print("Zruseno.")
 
 
-def parse_recipe_ids_from_plan(plan_text: str) -> list[tuple[str, str]]:
-    """Extract (recipe_id, recipe_name) pairs from get_planned_recipes_this_week text.
-
-    Line format: '  • r59322 — Recipe name'
-    """
-    pattern = re.compile(r"•\s+(r\w+)\s+—\s+(.+)")
-    return [(m.group(1).strip(), m.group(2).strip()) for m in pattern.finditer(plan_text)]
+def planned_recipe_ids(plan: dict) -> list[tuple[str, str]]:
+    """Extract (recipe_id, recipe_name) pairs from a get_planned_recipes_this_week result."""
+    return [
+        (recipe["id"], recipe["name"])
+        for day in plan.get("days", [])
+        for recipe in day["recipes"]
+    ]
 
 
 async def weekly_shopping_flow(mcp: MCPConnectionManager) -> None:
     """Fetch the weekly plan from Cookidoo, aggregate ingredients and add them to the cart."""
-    print("\nPripojuji se ke Cookidoo...")
-    auth_result = await mcp.call_cookidoo_tool("connect_to_cookidoo")
-    print(f"  {auth_result}")
-    if "Error" in auth_result or "Failed" in auth_result:
-        return
+    print("\nStahuji tydenny plan z Cookidoo...")
+    plan = await mcp.call_cookidoo_tool("get_planned_recipes_this_week")
+    for day in plan.get("days", []):
+        print(f"{day['title']}:")
+        for recipe in day["recipes"]:
+            print(f"  • {recipe['id']} — {recipe['name']}")
 
-    print("Stahuji tydenny plan z Cookidoo...")
-    plan_text = await mcp.call_cookidoo_tool("get_planned_recipes_this_week")
-    print(plan_text)
-
-    recipe_ids = parse_recipe_ids_from_plan(plan_text)
+    recipe_ids = planned_recipe_ids(plan)
     if not recipe_ids:
         print("Zadne recepty nejsou naplanovany na tento tyden.")
         return
@@ -184,11 +181,10 @@ async def weekly_shopping_flow(mcp: MCPConnectionManager) -> None:
     recipes_ingredients = []
     for recipe_id, recipe_name in recipe_ids:
         print(f"  • {recipe_name} ({recipe_id})...")
-        recipe_text = await mcp.call_cookidoo_tool(
+        recipe = await mcp.call_cookidoo_tool(
             "get_recipe_details", {"recipe_id": recipe_id}
         )
-        raw = extract_ingredients_from_recipe_text(recipe_text)
-        ingredients = parse_ingredients(raw)
+        ingredients = parse_ingredients(ingredient_lines_from_recipe(recipe))
         recipes_ingredients.append((recipe_name, ingredients))
 
     # Aggregation
@@ -200,12 +196,6 @@ async def weekly_shopping_flow(mcp: MCPConnectionManager) -> None:
 
 async def single_recipe_flow(mcp: MCPConnectionManager) -> None:
     """Fetch one recipe by ID and add its ingredients to the cart."""
-    print("\nPripojuji se ke Cookidoo...")
-    auth_result = await mcp.call_cookidoo_tool("connect_to_cookidoo")
-    print(f"  {auth_result}")
-    if "Error" in auth_result or "Failed" in auth_result:
-        return
-
     recipe_id = input("\nZadej ID receptu z Cookidoo (napr. r59322): ").strip()
     if not recipe_id:
         print("Zadne ID nezadano.")
@@ -215,12 +205,12 @@ async def single_recipe_flow(mcp: MCPConnectionManager) -> None:
         return
 
     print(f"\nStahuji recept {recipe_id}...")
-    recipe_text = await mcp.call_cookidoo_tool(
+    recipe = await mcp.call_cookidoo_tool(
         "get_recipe_details", {"recipe_id": recipe_id}
     )
-    print(recipe_text)
+    print(f"{recipe['name']} ({recipe['servings']} porci)")
 
-    raw_ingredients = extract_ingredients_from_recipe_text(recipe_text)
+    raw_ingredients = ingredient_lines_from_recipe(recipe)
     if not raw_ingredients:
         print("\nNepodarilo se extrahovat ingredience z receptu.")
         return

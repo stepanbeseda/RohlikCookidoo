@@ -3,7 +3,7 @@
 from ingredient_parser import (
     parse_single_ingredient,
     parse_ingredients,
-    extract_ingredients_from_recipe_text,
+    ingredient_lines_from_recipe,
     aggregate_ingredients,
     AggregatedIngredient,
 )
@@ -99,39 +99,27 @@ class TestParseIngredients:
         assert len(result) == 2
 
 
-class TestExtractFromRecipeText:
-    """Tests for extracting ingredients from recipe text."""
+class TestIngredientLinesFromRecipe:
+    """Tests for turning a Cookidoo MCP recipe into ingredient lines."""
 
-    def test_basic_extraction(self):
-        text = """Recipe Details:
+    def test_quantity_goes_first(self):
+        recipe = {
+            "name": "Palačinky",
+            "ingredients": [
+                {"name": "hladká mouka", "quantity": "200 g"},
+                {"name": "vejce", "quantity": "2"},
+                {"name": "sůl", "quantity": ""},
+            ],
+        }
+        result = ingredient_lines_from_recipe(recipe)
+        assert result == ["200 g hladká mouka", "2 vejce", "sůl"]
 
-Name: Palačinky
-Servings: 4
+    def test_name_with_dash_is_kept_whole(self):
+        recipe = {"ingredients": [{"name": "rajčata - sušená", "quantity": "50 g"}]}
+        assert ingredient_lines_from_recipe(recipe) == ["50 g rajčata - sušená"]
 
-Ingredients:
-  • hladká mouka - 200 g
-  • mléko - 300 ml
-  • vejce - 2 ks
-  • sůl
-
-Steps:
-1. Smíchej vše dohromady.
-"""
-        result = extract_ingredients_from_recipe_text(text)
-        assert len(result) == 4
-        assert "200 g hladká mouka" in result
-        assert "300 ml mléko" in result
-        assert "2 ks vejce" in result
-        assert "sůl" in result
-
-    def test_empty_text(self):
-        result = extract_ingredients_from_recipe_text("")
-        assert result == []
-
-    def test_no_ingredients_section(self):
-        text = "Recipe Details:\nName: Test\nSteps:\n1. Do something."
-        result = extract_ingredients_from_recipe_text(text)
-        assert result == []
+    def test_no_ingredients(self):
+        assert ingredient_lines_from_recipe({"name": "Test"}) == []
 
 
 class TestAggregateIngredients:

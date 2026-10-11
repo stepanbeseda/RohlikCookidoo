@@ -19,7 +19,7 @@ Pouze ukaz prehled co kupujes a za kolik, a pozadej o potvrzeni pred pridanim do
 Kdyz uzivatel napise `/tyden`, proved tento postup:
 
 1. Zavolej `connect_to_cookidoo`
-2. Zavolej `get_planned_recipes_this_week` — ziskej tydenny plan
+2. Zavolej `get_planned_recipes_this_week` — ziskej tydenny plan (pro pristi tyden pouzij parametr `week_offset: 1`)
 3. Pro kazdy recept zavolej `get_recipe_details` s jeho ID
 4. Ze vsech receptu vytahni ingredience (nazev, mnozstvi, jednotka)
 5. Zavolej `get_pantry_items` — ziskej seznam surovin, ktere uzivatel ma doma
@@ -49,6 +49,8 @@ nebo napise `/url <odkaz>`:
 
 - Vzdy nejdrive zavolej `connect_to_cookidoo` pred ostatnimi Cookidoo nastroji
 - Vzdy zavolej `get_pantry_items` pred nakupem — suroviny z pantry nekupuj
+- Ingredience z Cookidoo prichazi ve 2. pade ("masla", "soli") — pri porovnani s pantry a hledani na Rohliku je preved na zakladni tvar
+- Mnozstvi v receptu plati pro pocet porci v poli `servings`
 - Pri scitani ingredienci preved jednotky na stejne (kg na g, l na ml)
 - Ingredience z receptu hledej v 1. pade (nominativ) — ne "kapar, solenych" ale "kapary"
 - Pouzivej cestinu
