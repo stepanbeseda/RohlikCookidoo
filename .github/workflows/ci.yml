@@ -63,11 +63,14 @@ jobs:
       - name: The server refuses to start without a token
         run: |
           ! docker run --rm rohlik-cookidoo
-      - name: The compose file is valid
+      - name: The compose files and the Funnel configuration are valid
         run: |
           cp .env.example .env
           sed -i "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$TOKEN/" .env
+          sed -i "s/^TS_AUTHKEY=.*/TS_AUTHKEY=tskey-auth-example/" .env
           docker compose config --quiet
+          DOMAIN=kitchen.example.com docker compose -f docker-compose.caddy.yml config --quiet
+          python3 -m json.tool tailscale/funnel.json > /dev/null
       - name: Show logs on failure
         if: failure()
         run: docker logs app || true

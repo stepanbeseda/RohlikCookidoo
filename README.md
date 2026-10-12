@@ -120,47 +120,84 @@ Spíž nezná množství. Když recepty chtějí 300 g másla, bere se máslo ja
 
 Claude v telefonu umí jen vzdálené konektory. Když server `kitchen` poběží na tvém VPS, připojíš ho jednou ke svému účtu Claude a funguje v telefonu, na webu i v desktopové aplikaci.
 
-Potřebuješ VPS s Dockerem, doménu (nebo subdoménu) s DNS záznamem na IP adresu VPS a otevřené porty 80 a 443.
+Konektor volají servery Anthropicu, ne tvůj telefon, takže server musí být dosažitelný z internetu. Adresa dostupná jen uvnitř tailnetu by v telefonu nefungovala. Proto se používá **Tailscale Funnel**: server dostane veřejnou HTTPS adresu `https://JMENO.tvuj-tailnet.ts.net`, ale na VPS není otevřený žádný port a nepotřebuješ doménu.
+
+### Příprava v Tailscale
+
+V [administraci Tailscale](https://login.tailscale.com/admin):
+
+1. V **DNS** zapni MagicDNS a HTTPS certifikáty.
+2. V **Access controls** povol Funnel. Do souboru s pravidly patří:
+   ```json
+   "nodeAttrs": [
+     { "target": ["autogroup:member"], "attr": ["funnel"] }
+   ]
+   ```
+3. V **Settings → Keys** vygeneruj auth key.
+
+### Nasazení
+
+Na VPS s Dockerem:
 
 ```bash
 git clone https://github.com/stepanbeseda/RohlikCookidoo.git
 cd RohlikCookidoo
-cp .env.example .env
+cp .env.example .env && chmod 600 .env
 openssl rand -hex 32        # vygeneruje tajný token
 ```
 
-Do `.env` vyplň `COOKIDOO_EMAIL`, `COOKIDOO_PASSWORD`, `DOMAIN` (například `kuchyne.tvojedomena.cz`) a vygenerovaný token jako `MCP_AUTH_TOKEN`. Pak:
+Do `.env` vyplň `COOKIDOO_EMAIL`, `COOKIDOO_PASSWORD`, vygenerovaný token jako `MCP_AUTH_TOKEN`, auth key jako `TS_AUTHKEY` a případně `TS_HOSTNAME` (výchozí `kitchen`). Pak:
 
 ```bash
 docker compose up -d --build
 ```
 
-Caddy si sám obstará a obnovuje HTTPS certifikát. Že server běží, ověříš na `https://DOMAIN/health`, kde má být `ok`.
+Celou adresu zjistíš takto:
 
-V Claude otevři **Settings → Connectors → Add custom connector** a přidej dva konektory:
+```bash
+docker compose exec tailscale tailscale funnel status
+```
+
+První vydání certifikátu a DNS záznamu může trvat až deset minut. Že server běží, ověříš na `https://JMENO.tvuj-tailnet.ts.net/health`, kde má být `ok`.
+
+### Připojení v Claude
+
+V **Settings → Connectors → Add custom connector** přidej dva konektory:
 
 | Název | URL |
 |---|---|
-| Kitchen | `https://DOMAIN/MCP_AUTH_TOKEN/mcp` |
+| Kitchen | `https://JMENO.tvuj-tailnet.ts.net/MCP_AUTH_TOKEN/mcp` |
 | Rohlik | `https://mcp.rohlik.cz/mcp` |
 
 U Rohlíku projdi přihlášením v prohlížeči. Pak v telefonu napiš „nakup mi na tento týden“. Při prvním nákupu ti Claude nabídne dotazník na spíž.
 
-**Zabezpečení.** Server nemá vlastní přihlašování: chrání ho jen tajný token v adrese. Kdo adresu zná, vidí tvůj jídelníček, spíž a obvyklé produkty a může je měnit; ke košíku ani k účtu na Rohlíku se přes ni nedostane. Adresu proto nikam nevkládej a nesdílej. Když unikne, změň `MCP_AUTH_TOKEN` v `.env`, spusť `docker compose up -d` a konektor v Claude přidej znovu s novou adresou. Token se nezapisuje do logů serveru.
+### Zabezpečení
 
-**Data.** Spíž, obvyklé produkty a preference leží ve svazku `data`. Zálohu uděláš takto:
+Funnel je veřejný: na adresu se dostane kdokoli z internetu. Server nemá vlastní přihlašování, chrání ho jen tajný token v adrese; bez něj vrací 404.
+
+- Kdo adresu s tokenem zná, vidí tvůj jídelníček, spíž a obvyklé produkty a může je měnit. Ke košíku ani k účtu na Rohlíku se přes ni nedostane.
+- Adresu nikam nevkládej a nesdílej. Když unikne, změň `MCP_AUTH_TOKEN` v `.env`, spusť `docker compose up -d` a konektor v Claude přidej znovu s novou adresou.
+- Token se nezapisuje do logů serveru.
+- Server poslouchá jen na `127.0.0.1` uvnitř síťového prostoru kontejneru Tailscale, takže se na něj nedostane ani jiný kontejner na VPS.
+- Volitelně nastav `DOMAIN` v `.env` na celé jméno `JMENO.tvuj-tailnet.ts.net`. Server pak odmítne požadavky na jiné jméno hostitele.
+
+### Data a aktualizace
+
+Spíž, obvyklé produkty a preference leží ve svazku `data`, přihlášení k Tailscale ve svazku `tailscale_state`.
 
 ```bash
-docker compose cp app:/data ./zaloha-data
+docker compose cp app:/data ./zaloha-data       # záloha
+git pull && docker compose up -d --build        # aktualizace
 ```
 
-**Aktualizace.**
+### Jiné možnosti
 
-```bash
-git pull && docker compose up -d --build
-```
-
-Server jde v HTTP režimu spustit i bez Dockeru: `MCP_TRANSPORT=http MCP_AUTH_TOKEN=… python server.py` poslouchá na `127.0.0.1:8000` a HTTPS před něj musíš dát sám.
+- **Vlastní doména místo Tailscale.** `docker-compose.caddy.yml` dává před server Caddy, který si sám obstará HTTPS certifikát. Potřebuje `DOMAIN` v `.env`, DNS záznam na VPS a otevřené porty 80 a 443:
+  ```bash
+  docker compose -f docker-compose.caddy.yml up -d --build
+  ```
+- **Jen tailnet, bez veřejné adresy.** Funguje pouze na počítači (Claude Desktop, Claude Code), v telefonu ne. V `tailscale/funnel.json` smaž blok `AllowFunnel`; server pak uvidí jen zařízení v tvém tailnetu.
+- **Bez Dockeru.** `MCP_TRANSPORT=http MCP_AUTH_TOKEN=… python server.py` poslouchá na `127.0.0.1:8000` a HTTPS před něj musíš dát sám.
 
 ## Bez pluginu: Claude Desktop (chat)
 
@@ -210,7 +247,7 @@ Komunitní balíček [@tomaspavlin/rohlik-mcp](https://github.com/tomaspavlin/ro
 - **Vlastní recepty.** Recepty, které sis v Cookidoo vytvořil sám, mají ingredience jako volný text. Server je vrací, ale není to vyzkoušené.
 - **Košík.** Rozdíl proti košíku počítá kód, ale obsah košíku mu předává Claude z textového výpisu Rohlíku. Před potvrzením si tabulku zkontroluj.
 - **Přihlášení k Rohlíku z pluginu.** Server a postup jsou ověřené přes konektor v aplikaci. Přihlášení přes `/mcp` u serveru deklarovaného pluginem vyzkoušené není.
-- **VPS a Cookidoo.** Nasazení přes Docker je ověřené sestavením a spuštěním obrazu v CI, ne na skutečném VPS. Zda Cookidoo nepřihlášení z adres datacenter neblokuje, vyzkoušené není.
+- **Nasazení na VPS.** Docker obraz se sestavuje a spouští v CI. Tailscale Funnel ani Caddy na skutečném VPS vyzkoušené nejsou, stejně jako přihlášení ke Cookidoo z adresy datacentra.
 - **Neoficiální API.** Cookidoo nemá veřejné API; knihovna `cookidoo-api` používá neveřejné rozhraní, které se může kdykoli změnit.
 
 ## Bezpečnost

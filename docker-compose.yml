@@ -1,41 +1,45 @@
-# Self-hosting on a VPS: the MCP server behind Caddy, which obtains and renews
-# the HTTPS certificate on its own. Settings come from the .env file next to
-# this file; see .env.example.
+# Self-hosting behind Tailscale Funnel: the server gets a public HTTPS address
+# https://<TS_HOSTNAME>.<your-tailnet>.ts.net without opening any port on the
+# host and without a domain of your own. Settings come from the .env file next
+# to this file; see .env.example.
+#
+# For a setup with your own domain and Caddy, use docker-compose.caddy.yml.
 
 services:
+  tailscale:
+    image: tailscale/tailscale:v1.102.5
+    restart: unless-stopped
+    hostname: ${TS_HOSTNAME:-kitchen}
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY:?Set TS_AUTHKEY in .env}
+      TS_HOSTNAME: ${TS_HOSTNAME:-kitchen}
+      TS_STATE_DIR: /var/lib/tailscale
+      # The node stays signed in through the state volume; the key is used once
+      TS_AUTH_ONCE: "true"
+      TS_SERVE_CONFIG: /config/funnel.json
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - ./tailscale/funnel.json:/config/funnel.json:ro
+
   app:
     build: .
     restart: unless-stopped
+    depends_on:
+      - tailscale
+    # Shares the Tailscale container's network: Funnel forwards to 127.0.0.1:8000
+    # and nothing else can reach the server.
+    network_mode: service:tailscale
     environment:
+      HOST: 127.0.0.1
       COOKIDOO_EMAIL: ${COOKIDOO_EMAIL:?Set COOKIDOO_EMAIL in .env}
       COOKIDOO_PASSWORD: ${COOKIDOO_PASSWORD:?Set COOKIDOO_PASSWORD in .env}
       COOKIDOO_COUNTRY: ${COOKIDOO_COUNTRY:-cz}
       COOKIDOO_LANGUAGE: ${COOKIDOO_LANGUAGE:-cs}
       MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?Set MCP_AUTH_TOKEN in .env (openssl rand -hex 32)}
-      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+      DOMAIN: ${DOMAIN:-}
     volumes:
       - data:/data
-    # Reachable only from Caddy, not from the internet
-    expose:
-      - "8000"
-
-  caddy:
-    image: caddy:2.8.4-alpine
-    restart: unless-stopped
-    depends_on:
-      app:
-        condition: service_healthy
-    environment:
-      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
 
 volumes:
   data:
-  caddy_data:
-  caddy_config:
+  tailscale_state:
