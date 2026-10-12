@@ -12,6 +12,7 @@ from rohlik_cookidoo.packages import packages_needed, parse_package_amount
         ("1 kg", (1000, "weight")),
         ("1,98 l", (1980, "volume")),
         ("cca 130 g", (130, "weight")),
+        ("cca 0,85 kg", (850, "weight")),
         ("4 x 125 g", (500, "weight")),
         ("6×0,5 l", (3000, "volume")),
         ("10 ks", (10, "count")),

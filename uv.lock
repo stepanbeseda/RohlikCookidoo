@@ -1618,13 +1618,12 @@ wheels = [
 
 [[package]]
 name = "rohlik-cookidoo"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "cookidoo-api" },
     { name = "fastmcp" },
-    { name = "mcp" },
     { name = "python-dotenv" },
 ]
 
@@ -1639,7 +1638,6 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.9,<4" },
     { name = "cookidoo-api", specifier = ">=0.17,<0.19" },
     { name = "fastmcp", specifier = ">=3.1,<4" },
-    { name = "mcp", specifier = ">=1.26,<2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "python-dotenv", specifier = ">=1.0,<2" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },

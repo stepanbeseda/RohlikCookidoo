@@ -63,6 +63,7 @@ def add_pantry_item(item: str, path: str | None = None) -> bool:
     file = pantry_path(path)
     existing = file.read_text(encoding="utf-8") if file.exists() else ""
     separator = "" if not existing or existing.endswith("\n") else "\n"
+    file.parent.mkdir(parents=True, exist_ok=True)
     file.write_text(f"{existing}{separator}{item}\n", encoding="utf-8")
     return True
 

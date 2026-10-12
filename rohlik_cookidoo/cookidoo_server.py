@@ -3,7 +3,7 @@
 A thin read-only wrapper around the unofficial cookidoo-api library. It exposes
 the weekly meal plan and recipe ingredients as structured data.
 
-Run it with `fastmcp run cookidoo_server.py` from the repository root.
+Run it with `python cookidoo_server.py` from the repository root.
 Configuration comes from environment variables, with a `.env` file in the
 repository root as a fallback:
 
