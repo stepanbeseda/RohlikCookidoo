@@ -12,11 +12,11 @@ as long-term promotions.
 """
 
 import re
-import unicodedata
 from dataclasses import dataclass
 
-from ingredient_parser import ParsedIngredient
 from mcp_clients import MCPConnectionManager
+from rohlik_cookidoo.ingredients import AggregatedIngredient
+from rohlik_cookidoo.text import normalize
 
 
 @dataclass
@@ -51,19 +51,10 @@ _DISCOUNT_BLOCK_RE = re.compile(
 _SHORT_TERM_TAG_RE = re.compile(r"-\s*(\d+)\s*%\s*do\s*\d+\.\s*\d+\.?")
 
 
-def _normalize(text: str) -> str:
-    """Strip diacritics and lowercase the text."""
-    normalized = unicodedata.normalize("NFD", text)
-    without_diacritics = "".join(
-        c for c in normalized if unicodedata.category(c) != "Mn"
-    )
-    return without_diacritics.lower().strip()
-
-
 def _ingredient_matches_product(ingredient_name: str, product_name: str) -> bool:
     """Check whether a product name matches an ingredient (fuzzy matching)."""
-    norm_ingredient = _normalize(ingredient_name)
-    norm_product = _normalize(product_name)
+    norm_ingredient = normalize(ingredient_name)
+    norm_product = normalize(product_name)
 
     if norm_ingredient in norm_product:
         return True
@@ -77,7 +68,7 @@ def _ingredient_matches_product(ingredient_name: str, product_name: str) -> bool
 
 async def check_food_rescue(
     mcp: MCPConnectionManager,
-    ingredients: list[ParsedIngredient],
+    ingredients: list[AggregatedIngredient],
 ) -> list[FoodRescueMatch]:
     """Check whether discounted products are available for the ingredients.
 
@@ -86,7 +77,7 @@ async def check_food_rescue(
     """
     try:
         raw = await mcp.call_rohlik_tool("get_discounted_items", {})
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - a failed discount check must not stop the shopping flow
         print(f"  Nepodarilo se zkontrolovat Zachran jidlo: {e}")
         return []
 

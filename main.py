@@ -9,23 +9,28 @@ Usage:
 """
 
 import asyncio
+import json
 import re
 import sys
-import json
-import math
 
-from config import load_config, get_quality_preference, load_pantry, is_pantry_item
+from config import get_quality_preference, load_config
+from food_rescue import check_food_rescue, display_food_rescue_matches
 from mcp_clients import MCPConnectionManager
-from ingredient_parser import (
-    parse_ingredients,
-    ingredient_lines_from_recipe,
+from rohlik_cookidoo.ingredients import (
+    AggregatedIngredient,
     aggregate_ingredients,
     display_aggregated_ingredients,
-    AggregatedIngredient,
-    _format_qty,
+    format_quantity,
+    parse_recipe_ingredients,
 )
-from rohlik_mapper import search_products_batch, add_to_cart, select_product_interactive, filter_by_preference, RohlikProduct
-from food_rescue import check_food_rescue, display_food_rescue_matches
+from rohlik_cookidoo.packages import packages_needed
+from rohlik_cookidoo.pantry import CHECK, HAVE, match_pantry, read_pantry_lines
+from rohlik_mapper import (
+    add_to_cart,
+    filter_by_preference,
+    search_products_batch,
+    select_product_interactive,
+)
 
 
 def _print_cart_result(result: str, cart_items: list) -> None:
@@ -56,56 +61,30 @@ def _print_cart_result(result: str, cart_items: list) -> None:
         print("\nProdukty pridany do kosiku. Zkontroluj Rohlik.cz.")
 
 
-def _calculate_packages_needed(agg: AggregatedIngredient, product: RohlikProduct) -> int:
-    """Estimate how many packages cover the required quantity.
-
-    E.g. 700 g needed, 500 g package -> 2 packages.
-    Returns 1 when no estimate is possible.
-    """
-    if agg.total_quantity is None or not product.amount:
-        return 1
-
-    # Try to extract a number from product.amount (e.g. "500 g", "1 kg", "0.5 l")
-    amount_match = re.search(r"([\d.,]+)\s*(g|kg|ml|l|dl)", product.amount, re.IGNORECASE)
-    if not amount_match:
-        return 1
-
-    pkg_qty = float(amount_match.group(1).replace(",", "."))
-    pkg_unit = amount_match.group(2).lower()
-
-    # Normalize to the same unit as agg
-    from ingredient_parser import UNIT_TO_GRAMS, UNIT_TO_ML, _to_base
-    needed = agg.total_quantity
-    needed_unit = agg.unit or ""
-
-    try:
-        needed_base, needed_u = _to_base(needed, needed_unit)
-        pkg_base, pkg_u = _to_base(pkg_qty, pkg_unit)
-        if needed_u == pkg_u:
-            return max(1, math.ceil(needed_base / pkg_base))
-    except Exception:
-        pass
-
-    return 1
-
-
 async def _run_shopping_flow(
     mcp: MCPConnectionManager,
     aggregated: list[AggregatedIngredient],
 ) -> None:
     """Shared part of the shopping flow: search -> food rescue -> selection -> cart."""
     # Filter out ingredients we have at home
-    pantry = load_pantry()
+    pantry = read_pantry_lines()
     if pantry:
-        pantry_items = [a for a in aggregated if is_pantry_item(a.name, pantry)]
-        aggregated = [a for a in aggregated if not is_pantry_item(a.name, pantry)]
+        matches = [(a, *match_pantry(a.name, pantry)) for a in aggregated]
+        at_home = [(a, item) for a, status, item in matches if status == HAVE]
+        to_check = [(a, item) for a, status, item in matches if status == CHECK]
+        # Only exact matches are skipped; similar items are bought and pointed out
+        aggregated = [a for a, status, _ in matches if status != HAVE]
 
-        if pantry_items:
+        if at_home:
             print("\n=== Doma by mely byt ===")
-            for a in pantry_items:
-                qty = _format_qty(a.total_quantity, a.unit)
-                print(f"  {a.name} ({qty})")
-            print(f"  -> {len(pantry_items)} surovin preskoceno (nekupujeme)\n")
+            for a, _ in at_home:
+                print(f"  {a.name} ({format_quantity(a.total_quantity, a.unit)})")
+            print(f"  -> {len(at_home)} surovin preskoceno (nekupujeme)\n")
+        if to_check:
+            print("=== Zkontroluj doma (ve spizi je neco podobneho) ===")
+            for a, item in to_check:
+                print(f"  {a.name} — ve spizi: {item}")
+            print("  -> tyto suroviny nabidnu k nakupu, muzes je preskocit\n")
 
     if not aggregated:
         print("Vsechny suroviny jsou v domaci zasobarni, nic neni treba nakoupit.")
@@ -126,10 +105,10 @@ async def _run_shopping_flow(
     cart_items = []  # list[(RohlikProduct, quantity)]
     for agg in aggregated:
         products = filter_by_preference(all_products.get(agg.search_term, []), preference)
-        qty_label = _format_qty(agg.total_quantity, agg.unit)
+        qty_label = format_quantity(agg.total_quantity, agg.unit)
         selected = select_product_interactive(products, f"{agg.name} ({qty_label} celkem)")
         if selected:
-            qty = _calculate_packages_needed(agg, selected)
+            qty = packages_needed(agg.total_quantity, agg.unit, selected.amount)["packages"]
             cart_items.append((selected, qty))
 
     if not cart_items:
@@ -184,7 +163,7 @@ async def weekly_shopping_flow(mcp: MCPConnectionManager) -> None:
         recipe = await mcp.call_cookidoo_tool(
             "get_recipe_details", {"recipe_id": recipe_id}
         )
-        ingredients = parse_ingredients(ingredient_lines_from_recipe(recipe))
+        ingredients = parse_recipe_ingredients(recipe)
         recipes_ingredients.append((recipe_name, ingredients))
 
     # Aggregation
@@ -210,29 +189,17 @@ async def single_recipe_flow(mcp: MCPConnectionManager) -> None:
     )
     print(f"{recipe['name']} ({recipe['servings']} porci)")
 
-    raw_ingredients = ingredient_lines_from_recipe(recipe)
-    if not raw_ingredients:
-        print("\nNepodarilo se extrahovat ingredience z receptu.")
+    ingredients = parse_recipe_ingredients(recipe)
+    if not ingredients:
+        print("\nRecept nema zadne ingredience.")
         return
 
-    ingredients = parse_ingredients(raw_ingredients)
     print(f"\nNalezeno {len(ingredients)} ingredienci:")
     for i, ing in enumerate(ingredients, 1):
         qty = f"{ing.quantity} {ing.unit or ''}" if ing.quantity else "dle chuti"
         print(f"  {i}. {ing.name} ({qty.strip()})")
 
-    # Wrap as AggregatedIngredient to share the same flow
-    from ingredient_parser import AggregatedIngredient
-    aggregated = [
-        AggregatedIngredient(
-            name=ing.name,
-            total_quantity=ing.quantity,
-            unit=ing.unit,
-            sources=[recipe_id],
-            search_term=ing.search_term,
-        )
-        for ing in ingredients
-    ]
+    aggregated = aggregate_ingredients([(recipe["name"], ingredients)])
 
     await _run_shopping_flow(mcp, aggregated)
 
