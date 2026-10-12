@@ -1,6 +1,6 @@
 {
   "name": "rohlik-cookidoo",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Turns a Cookidoo (Thermomix) meal plan or recipe into a Rohlik.cz shopping cart: sums ingredients, skips what is in the home pantry and fills the cart after confirmation.",
   "author": {
     "name": "stepanbeseda"

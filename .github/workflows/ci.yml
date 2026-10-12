@@ -25,3 +25,49 @@ jobs:
       - run: pytest
       - name: Check plugin manifests are valid JSON
         run: python -m json.tool .claude-plugin/plugin.json > /dev/null && python -m json.tool .claude-plugin/marketplace.json > /dev/null
+
+  docker:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: ci-token-0123456789abcdef0123456789abcdef
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t rohlik-cookidoo .
+      - name: Start the server
+        run: |
+          docker run -d --name app -p 8000:8000 -e MCP_AUTH_TOKEN="$TOKEN" rohlik-cookidoo
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
+      - name: The MCP endpoint answers only under the secret path
+        run: |
+          init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}'
+          headers=(-H "Content-Type: application/json" -H "Accept: application/json, text/event-stream")
+          code=$(curl -s -o body.txt -w '%{http_code}' -X POST "${headers[@]}" -d "$init" "http://127.0.0.1:8000/$TOKEN/mcp")
+          test "$code" = 200
+          grep -q rohlik-cookidoo body.txt
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "${headers[@]}" -d "$init" http://127.0.0.1:8000/mcp)
+          test "$code" = 404
+      - name: The container runs unprivileged, is healthy and keeps the token out of its logs
+        run: |
+          test "$(docker exec app id -u)" = 10001
+          for i in $(seq 1 45); do
+            test "$(docker inspect -f '{{.State.Health.Status}}' app)" = healthy && break
+            sleep 1
+          done
+          test "$(docker inspect -f '{{.State.Health.Status}}' app)" = healthy
+          ! docker logs app 2>&1 | tr -d '[:space:]' | grep -q "$TOKEN"
+      - name: The server refuses to start without a token
+        run: |
+          ! docker run --rm rohlik-cookidoo
+      - name: The compose file is valid
+        run: |
+          cp .env.example .env
+          sed -i "s/^MCP_AUTH_TOKEN=.*/MCP_AUTH_TOKEN=$TOKEN/" .env
+          docker compose config --quiet
+      - name: Show logs on failure
+        if: failure()
+        run: docker logs app || true

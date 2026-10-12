@@ -14,15 +14,30 @@ fallback:
                                         preferences.json live (default: the
                                         repository root); PANTRY_PATH overrides
                                         the pantry file location
+
+By default the server talks over stdio, for a client on the same machine. Set
+MCP_TRANSPORT=http to serve remote clients:
+
+    MCP_AUTH_TOKEN   required; a long random secret that becomes part of the
+                     URL: https://<domain>/<token>/mcp
+    HOST, PORT       where to listen, defaults 127.0.0.1 and 8000
+    DOMAIN           public host name; when set, requests for any other host
+                     are refused
 """
 
 import asyncio
+import logging
+import os
+import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse, Response
 
 from rohlik_cookidoo import memory
 from rohlik_cookidoo.cart import DEFAULT_MINIMUM_ORDER
@@ -291,5 +306,84 @@ def get_shopping_guide() -> str:
     return INSTRUCTIONS
 
 
+@mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
+async def health(request: Request) -> Response:
+    """Liveness check for the container; reveals nothing and needs no secret."""
+    return PlainTextResponse("ok")
+
+
+_TOKEN = re.compile(r"[A-Za-z0-9_-]{32,}")
+
+
+def http_settings(env: Mapping[str, str]) -> dict:
+    """Read the HTTP settings from the environment, refusing an unsafe setup.
+
+    The server has no login of its own: the secret token in the URL is the
+    only thing that keeps strangers out, so a missing or short one is an error.
+    """
+    token = env.get("MCP_AUTH_TOKEN", "").strip()
+    if not _TOKEN.fullmatch(token):
+        raise ValueError(
+            "MCP_AUTH_TOKEN must be at least 32 characters of letters, digits, '-' or '_'."
+            " Generate one with: openssl rand -hex 32"
+        )
+    settings: dict = {
+        "host": env.get("HOST", "127.0.0.1"),
+        "port": int(env.get("PORT", "8000")),
+        "path": f"/{token}/mcp",
+        # No per-connection state: a restart or a second replica does not break clients
+        "stateless_http": True,
+    }
+    domain = env.get("DOMAIN", "").strip()
+    if domain:
+        # Refuse requests addressed to any other host name (localhost stays allowed)
+        settings["host_origin_protection"] = "auto"
+        settings["allowed_hosts"] = [domain]
+    return settings
+
+
+class _RedactSecret(logging.Filter):
+    """Replace the secret token in log messages, e.g. in the startup URL."""
+
+    def __init__(self, secret: str) -> None:
+        super().__init__()
+        self._secret = secret
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        if self._secret in message:
+            record.msg, record.args = message.replace(self._secret, "<token>"), ()
+        return True
+
+
+def redact_from_logs(secret: str) -> None:
+    """Keep `secret` out of everything the existing log handlers write."""
+    redact = _RedactSecret(secret)
+    loggers = [logging.getLogger(), *logging.root.manager.loggerDict.values()]
+    for logger in loggers:
+        for handler in getattr(logger, "handlers", []):
+            handler.addFilter(redact)
+
+
+def main() -> None:
+    """Start the server on the transport chosen by MCP_TRANSPORT."""
+    if os.getenv("MCP_TRANSPORT", "stdio").strip().lower() == "http":
+        try:
+            settings = http_settings(os.environ)
+        except ValueError as e:
+            raise SystemExit(f"Cannot start the HTTP server: {e}") from e
+        # The URL contains the secret token, so keep it out of the logs:
+        # no startup banner, no per-request access log, and redaction elsewhere.
+        redact_from_logs(os.environ["MCP_AUTH_TOKEN"].strip())
+        mcp.run(
+            transport="http",
+            show_banner=False,
+            uvicorn_config={"access_log": False},
+            **settings,
+        )
+    else:
+        mcp.run()
+
+
 if __name__ == "__main__":
-    mcp.run()
+    main()

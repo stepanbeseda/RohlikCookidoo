@@ -116,6 +116,52 @@ Porovnání nezávisí na pádu ani na diakritice a má tři výsledky:
 
 Spíž nezná množství. Když recepty chtějí 300 g másla, bere se máslo jako „doma“ a Claude na větší množství upozorní.
 
+## Vlastní server na VPS (i pro telefon)
+
+Claude v telefonu umí jen vzdálené konektory. Když server `kitchen` poběží na tvém VPS, připojíš ho jednou ke svému účtu Claude a funguje v telefonu, na webu i v desktopové aplikaci.
+
+Potřebuješ VPS s Dockerem, doménu (nebo subdoménu) s DNS záznamem na IP adresu VPS a otevřené porty 80 a 443.
+
+```bash
+git clone https://github.com/stepanbeseda/RohlikCookidoo.git
+cd RohlikCookidoo
+cp .env.example .env
+openssl rand -hex 32        # vygeneruje tajný token
+```
+
+Do `.env` vyplň `COOKIDOO_EMAIL`, `COOKIDOO_PASSWORD`, `DOMAIN` (například `kuchyne.tvojedomena.cz`) a vygenerovaný token jako `MCP_AUTH_TOKEN`. Pak:
+
+```bash
+docker compose up -d --build
+```
+
+Caddy si sám obstará a obnovuje HTTPS certifikát. Že server běží, ověříš na `https://DOMAIN/health`, kde má být `ok`.
+
+V Claude otevři **Settings → Connectors → Add custom connector** a přidej dva konektory:
+
+| Název | URL |
+|---|---|
+| Kitchen | `https://DOMAIN/MCP_AUTH_TOKEN/mcp` |
+| Rohlik | `https://mcp.rohlik.cz/mcp` |
+
+U Rohlíku projdi přihlášením v prohlížeči. Pak v telefonu napiš „nakup mi na tento týden“. Při prvním nákupu ti Claude nabídne dotazník na spíž.
+
+**Zabezpečení.** Server nemá vlastní přihlašování: chrání ho jen tajný token v adrese. Kdo adresu zná, vidí tvůj jídelníček, spíž a obvyklé produkty a může je měnit; ke košíku ani k účtu na Rohlíku se přes ni nedostane. Adresu proto nikam nevkládej a nesdílej. Když unikne, změň `MCP_AUTH_TOKEN` v `.env`, spusť `docker compose up -d` a konektor v Claude přidej znovu s novou adresou. Token se nezapisuje do logů serveru.
+
+**Data.** Spíž, obvyklé produkty a preference leží ve svazku `data`. Zálohu uděláš takto:
+
+```bash
+docker compose cp app:/data ./zaloha-data
+```
+
+**Aktualizace.**
+
+```bash
+git pull && docker compose up -d --build
+```
+
+Server jde v HTTP režimu spustit i bez Dockeru: `MCP_TRANSPORT=http MCP_AUTH_TOKEN=… python server.py` poslouchá na `127.0.0.1:8000` a HTTPS před něj musíš dát sám.
+
 ## Bez pluginu: Claude Desktop (chat)
 
 Chat v Claude Desktop lokální servery z pluginu nenačítá, ale jdou připojit ručně.
@@ -164,6 +210,7 @@ Komunitní balíček [@tomaspavlin/rohlik-mcp](https://github.com/tomaspavlin/ro
 - **Vlastní recepty.** Recepty, které sis v Cookidoo vytvořil sám, mají ingredience jako volný text. Server je vrací, ale není to vyzkoušené.
 - **Košík.** Rozdíl proti košíku počítá kód, ale obsah košíku mu předává Claude z textového výpisu Rohlíku. Před potvrzením si tabulku zkontroluj.
 - **Přihlášení k Rohlíku z pluginu.** Server a postup jsou ověřené přes konektor v aplikaci. Přihlášení přes `/mcp` u serveru deklarovaného pluginem vyzkoušené není.
+- **VPS a Cookidoo.** Nasazení přes Docker je ověřené sestavením a spuštěním obrazu v CI, ne na skutečném VPS. Zda Cookidoo nepřihlášení z adres datacenter neblokuje, vyzkoušené není.
 - **Neoficiální API.** Cookidoo nemá veřejné API; knihovna `cookidoo-api` používá neveřejné rozhraní, které se může kdykoli změnit.
 
 ## Bezpečnost
@@ -172,6 +219,7 @@ Komunitní balíček [@tomaspavlin/rohlik-mcp](https://github.com/tomaspavlin/ro
 - Heslo ke Cookidoo ukládá plugin do systémového úložiště hesel. Při ručním nastavení v `claude_desktop_config.json` leží na disku v čitelné podobě; soubor nesdílej.
 - Každý server dostává jen své vlastní přihlašovací údaje. Server `kitchen` nedostává žádné.
 - Oficiální server Rohlíku žádá u každého volání krátký popis účelu pro analytiku. Postup Claudovi ukládá psát ho obecně, bez osobních údajů.
+- Na VPS leží heslo ke Cookidoo v souboru `.env` v čitelné podobě. Nastav mu práva jen pro sebe (`chmod 600 .env`).
 - `.env`, `pantry.txt`, `products.json` a `preferences.json` jsou v `.gitignore`.
 
 ## Řešení problémů
@@ -197,7 +245,7 @@ Plugin z pracovní složky vyzkoušíš příkazem `claude --plugin-dir .`.
 - `skills/` – příkazy `/tyden`, `/recept`, `/url`
 - `.claude-plugin/` – manifest pluginu a marketplace
 
-Testy a lint běží na GitHubu při každém pull requestu.
+Testy a lint běží na GitHubu při každém pull requestu. Druhá úloha sestaví Docker obraz, spustí ho a ověří, že server odpovídá jen pod tajnou adresou.
 
 ## Licence
 
