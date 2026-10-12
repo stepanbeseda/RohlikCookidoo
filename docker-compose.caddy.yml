@@ -1,0 +1,44 @@
+# Self-hosting with your own domain: the MCP server behind Caddy, which obtains
+# and renews the HTTPS certificate on its own. Needs ports 80 and 443 open and
+# a DNS record for DOMAIN. Settings come from the .env file next to this file;
+# see .env.example.
+#
+#   docker compose -f docker-compose.caddy.yml up -d --build
+
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      COOKIDOO_EMAIL: ${COOKIDOO_EMAIL:?Set COOKIDOO_EMAIL in .env}
+      COOKIDOO_PASSWORD: ${COOKIDOO_PASSWORD:?Set COOKIDOO_PASSWORD in .env}
+      COOKIDOO_COUNTRY: ${COOKIDOO_COUNTRY:-cz}
+      COOKIDOO_LANGUAGE: ${COOKIDOO_LANGUAGE:-cs}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?Set MCP_AUTH_TOKEN in .env (openssl rand -hex 32)}
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    volumes:
+      - data:/data
+    # Reachable only from Caddy, not from the internet
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:
