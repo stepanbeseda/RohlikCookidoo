@@ -1,288 +1,189 @@
 # RohlikCookidoo
 
-Propojuje **Cookidoo** (recepty z Thermomixu) s **Rohlik.cz** (nákup potravin).
-Claude přečte týdenní plán receptů, sečte ingredience, odečte suroviny, které máš doma, a zbytek po tvém potvrzení přidá do košíku na Rohlíku.
+Nákupní pomocník pro **Cookidoo** a **Rohlik.cz**. Řekneš, co chceš vařit, a asistent ti připraví košík. Funguje i z telefonu.
 
-> Neoficiální osobní projekt. Není spojený se společnostmi Rohlik, Vorwerk, Thermomix ani Cookidoo.
-> Objednávku nikdy neodesílá, jen plní košík. Odeslání potvrzuješ ty v e-shopu.
+- **Nákup podle jídelníčku.** Přečte týdenní plán z Cookidoo, sečte suroviny, odečte, co máš doma, a zbytek dá do košíku.
+- **Nákup podle receptu.** Jeden recept z Cookidoo nebo z libovolného webu, přepočítaný na tvůj počet porcí.
+- **Poradce při nákupu.** Vybírá produkty podle tvých preferencí, navrhuje náhrady, hlídá diety, upozorní na zbytky i na minimální objednávku a pamatuje si, co obvykle kupuješ.
 
----
+Výpočty dělá kód, takže jsou stejné pokaždé. Jak dobře asistent radí a vybírá produkty, záleží na modelu, který používáš. Vyzkoušené je to s Claude; servery mluví protokolem MCP, takže je může použít i jiný klient, který ho umí.
+
+> Neoficiální osobní projekt, bez vazby na Rohlik, Vorwerk, Thermomix ani Cookidoo.
+> Objednávku nikdy neodesílá. Plní jen košík, odeslání potvrzuješ ty.
 
 ## Jak to funguje
 
-Stačí dva MCP servery:
-
-| Server | Co dělá | Přihlášení |
-|---|---|---|
-| `kitchen` (tento projekt) | čte týdenní plán a recepty z Cookidoo, sčítá ingredience, porovnává je se spíží, počítá počet balení a co v košíku ještě chybí, pamatuje si tvoje obvyklé produkty | e-mail a heslo ke Cookidoo |
-| `rohlik` (oficiální server Rohlíku `mcp.rohlik.cz`) | hledá produkty a plní košík | OAuth v prohlížeči, bez hesla |
-
-Sčítání, spíž a ceny počítá kód, Claude vybírá produkty. Postup nákupu si Claude bere přímo ze serveru `kitchen`, takže ho není potřeba nikam vkládat.
-
-Repo je zároveň plugin pro Claude Code s příkazy `/tyden`, `/recept` a `/url`.
-
-## Co potřebuješ
-
-- Claude Code (terminál nebo záložka Code v desktopové aplikaci)
-- [uv](https://docs.astral.sh/uv/) – spouští oba Python servery a samo nainstaluje závislosti podle `uv.lock`
-- účet na Cookidoo a na Rohlik.cz
-
-## Instalace pluginu
-
-V Claude Code:
-
-```
-/plugin marketplace add stepanbeseda/RohlikCookidoo
-/plugin install rohlik-cookidoo@rohlik-cookidoo
+```mermaid
+flowchart LR
+    you([Ty]) --> claude[Claude<br>telefon, web, desktop]
+    claude -- konektor Kitchen --> funnel[Tailscale Funnel]
+    funnel --> kitchen[kitchen server<br>na tvém VPS]
+    kitchen --> cookidoo[(Cookidoo<br>jídelníček, recepty)]
+    kitchen --> data[(spíž, obvyklé produkty,<br>preference)]
+    claude -- konektor Rohlik --> rohlik[mcp.rohlik.cz]
+    rohlik --> cart[(košík<br>na Rohlíku)]
 ```
 
-Při instalaci se Claude Code zeptá na e-mail a heslo ke Cookidoo. Heslo ukládá do systémového úložiště hesel, ne do souboru. Později ho změníš přes `/plugin configure rohlik-cookidoo`.
+- **Kitchen** (tento projekt) počítá: součty surovin, spíž, počet balení, cenu, co v košíku chybí.
+- **Rohlik** (oficiální server Rohlíku) hledá produkty a plní košík. Přihlašuješ se k němu v prohlížeči, heslo nikam nezadáváš.
+- **Model** (Claude) vybírá produkty, radí a ptá se tě. Postup dostává přímo od serveru Kitchen.
 
-K Rohlíku se přihlásíš bez hesla: zadej `/mcp`, vyber server `rohlik` a projdi přihlášením v prohlížeči. Při prvním připojení může Rohlík poslat e-mail s potvrzením nového přihlášení.
+## Nasazení
 
-První spuštění trvá déle, protože `uv` stahuje závislosti. Stav serverů ukáže `/mcp`.
+Potřebuješ VPS s Dockerem, účet Tailscale, Cookidoo a Rohlik.
 
-## Příkazy
+**1. Tailscale** – v [administraci](https://login.tailscale.com/admin):
 
-**`/tyden`** přečte recepty z Cookidoo kalendáře na tento týden, sečte ingredience, odečte spíž a nabídne nákup. Pro příští týden napiš `/tyden příští`.
+- **DNS**: zapni MagicDNS a HTTPS certifikáty.
+- **Access controls**: povol Funnel.
+  ```json
+  "nodeAttrs": [{ "target": ["autogroup:member"], "attr": ["funnel"] }]
+  ```
+- **Settings → Keys**: vygeneruj auth key.
 
-```
-Ty:     /tyden
-
-Claude: V plánu jsou 4 recepty: Zelný hrnec s vepřovým masem, Gnocchi s rajčatovou omáčkou, ...
-
-        Koupíme (26 položek): cibule 280 g, vepřová plec 700 g, kysané zelí 250 g, ...
-        Doma máš: máslo (300 g ze 4 receptů – máš dost?), sůl, voda, hladká mouka
-        Zkontroluj doma: mletý černý pepř (ve spíži je „pepř“, nekupuji)
-
-        | Surovina      | Produkt                          | Balení      | Ks | Cena   |
-        | vepřová plec  | MASO! Vepřová plec v celku       | cca 0,85 kg | 1  | 211 Kč |
-        | kysané zelí   | Samir Zelí kysané bílé           | 500 g       | 1  | 28 Kč  |
-        | ...
-
-        Přidat do košíku?
-
-Ty:     ano
-
-Claude: Přidáno. Košík zkontroluj a objednávku odešli na rohlik.cz.
-```
-
-**`/recept <ID>`** udělá totéž pro jeden recept. ID je část adresy receptu na Cookidoo začínající písmenem `r`, například `/recept r117476`.
-
-**`/url <odkaz>`** přečte recept z libovolného webu, vytáhne ingredience a nabídne nákup.
-
-Kdyby se krátký tvar tloukl s jiným příkazem, použij tvar s předponou pluginu (`/rohlik-cookidoo:tyden`). Claude postup spustí i na běžnou větu („nakup mi na tento týden“).
-
-Dál můžeš říct:
-
-- **počet porcí:** „/recept r117476 pro 3 porce“
-- **preferenci:** „ber BIO“, „nejlevnější“, „značky Rohlíku“; výchozí je rozumný poměr ceny a kvality
-- **trvalou preferenci nebo dietu:** „vždycky ber BIO“, „nejím lepek“ – Claude si ji uloží a příště se podle ní řídí
-- **spíž:** „rýži mám vždycky doma“, „na máslo se mě vždycky zeptej“, „mouku už doma nedržím“
-- **produkt se ti nelíbil:** „tu smetanu už nekupuj“
-
-## Co si plugin pamatuje
-
-Vedle spíže si plugin ukládá dva malé soubory na tvém počítači, nikam je neposílá:
-
-- **Obvyklé produkty** (`products.json`). Po potvrzeném nákupu si Claude zapíše, který produkt jsi pro danou surovinu koupil. Příště ho nabídne jako první, pokud je stále v nabídce.
-- **Preference** (`preferences.json`). Jen to, o co ho výslovně požádáš: kvalita, dieta, čemu se vyhnout.
-
-Oba soubory leží vedle spíže a dají se smazat nebo ručně upravit.
-
-## Co počítá kód, ne model
-
-- **Součty ingrediencí** napříč recepty včetně převodů jednotek a přepočtu porcí.
-- **Počet balení** a **zbytek po uvaření**: když recept chce 200 g a balení má 1 kg, dozvíš se, že 800 g zbyde.
-- **Rozdíl proti košíku**: co už v košíku je, se nepřidá znovu. Opakované `/tyden` tak košík nezdvojí.
-- **Cena nákupu** a kolik chybí do minimální objednávky Rohlíku. Limit se bere z košíku (v říjnu 2026 to je 749 Kč při doručení domů).
-
-## Domácí zásobárna
-
-Suroviny ve spíži se nekupují. Spíž nemusíš psát ručně: když je prázdná, Claude ti při prvním nákupu nabídne krátký dotazník. Projde s tebou šest kategorií (základ, koření, mouky a pečení, oleje a dochucovadla, trvanlivé, čerstvé) a u každé stačí odpovědět jednou větou, třeba „všechno kromě rýže“. Kdykoli později ho spustíš větou „nastav mi spíž“.
-
-Spíž je textový soubor, jedna surovina na řádek. Plugin ho drží ve své datové složce (`~/.claude/plugins/data/…/pantry.txt`), kde přežije aktualizace. Ruční úprava je možná, vzor je v [pantry.txt.example](pantry.txt.example).
-
-Porovnání nezávisí na pádu ani na diakritice a má tři výsledky:
-
-| Recept | Spíž | Výsledek |
-|---|---|---|
-| másla | máslo | doma, nekupuje se |
-| sezamový olej | olej | zkontroluj doma: ve spíži je něco podobného, Claude rozhodne a řekne ti to |
-| vepřové plece | | kupuje se |
-| másla | ? máslo | zeptá se: obvykle doma je, ale dochází |
-
-Řádek začínající otazníkem (`? máslo`) znamená „obvykle doma mám, ale zeptej se“. Hodí se na máslo, vejce nebo mléko. V chatu to nastavíš větou „na máslo se mě vždycky zeptej“.
-
-Spíž nezná množství. Když recepty chtějí 300 g másla, bere se máslo jako „doma“ a Claude na větší množství upozorní.
-
-## Vlastní server na VPS (i pro telefon)
-
-Claude v telefonu umí jen vzdálené konektory. Když server `kitchen` poběží na tvém VPS, připojíš ho jednou ke svému účtu Claude a funguje v telefonu, na webu i v desktopové aplikaci.
-
-Konektor volají servery Anthropicu, ne tvůj telefon, takže server musí být dosažitelný z internetu. Adresa dostupná jen uvnitř tailnetu by v telefonu nefungovala. Proto se používá **Tailscale Funnel**: server dostane veřejnou HTTPS adresu `https://JMENO.tvuj-tailnet.ts.net`, ale na VPS není otevřený žádný port a nepotřebuješ doménu.
-
-### Příprava v Tailscale
-
-V [administraci Tailscale](https://login.tailscale.com/admin):
-
-1. V **DNS** zapni MagicDNS a HTTPS certifikáty.
-2. V **Access controls** povol Funnel. Do souboru s pravidly patří:
-   ```json
-   "nodeAttrs": [
-     { "target": ["autogroup:member"], "attr": ["funnel"] }
-   ]
-   ```
-3. V **Settings → Keys** vygeneruj auth key.
-
-### Nasazení
-
-Na VPS s Dockerem:
+**2. VPS**
 
 ```bash
 git clone https://github.com/stepanbeseda/RohlikCookidoo.git
 cd RohlikCookidoo
 cp .env.example .env && chmod 600 .env
-openssl rand -hex 32        # vygeneruje tajný token
+openssl rand -hex 32
 ```
 
-Do `.env` vyplň `COOKIDOO_EMAIL`, `COOKIDOO_PASSWORD`, vygenerovaný token jako `MCP_AUTH_TOKEN`, auth key jako `TS_AUTHKEY` a případně `TS_HOSTNAME` (výchozí `kitchen`). Pak:
+Do `.env` vyplň:
+
+| Proměnná | Hodnota |
+|---|---|
+| `COOKIDOO_EMAIL`, `COOKIDOO_PASSWORD` | přihlášení ke Cookidoo |
+| `MCP_AUTH_TOKEN` | výstup z `openssl rand -hex 32` |
+| `TS_AUTHKEY` | auth key z Tailscale |
+| `TS_HOSTNAME` | název stroje, výchozí `kitchen`; jen malá písmena, číslice a pomlčky |
 
 ```bash
 docker compose up -d --build
-```
-
-Celou adresu zjistíš takto:
-
-```bash
 docker compose exec tailscale tailscale funnel status
 ```
 
-První vydání certifikátu a DNS záznamu může trvat až deset minut. Že server běží, ověříš na `https://JMENO.tvuj-tailnet.ts.net/health`, kde má být `ok`.
+Druhý příkaz vypíše tvou adresu. Na `https://ADRESA/health` má být `ok` (první certifikát může trvat až deset minut).
 
-### Připojení v Claude
-
-V **Settings → Connectors → Add custom connector** přidej dva konektory:
+**3. Claude** – v **Settings → Connectors → Add custom connector** přidej:
 
 | Název | URL |
 |---|---|
-| Kitchen | `https://JMENO.tvuj-tailnet.ts.net/MCP_AUTH_TOKEN/mcp` |
+| Kitchen | `https://ADRESA/MCP_AUTH_TOKEN/mcp` |
 | Rohlik | `https://mcp.rohlik.cz/mcp` |
 
-U Rohlíku projdi přihlášením v prohlížeči. Pak v telefonu napiš „nakup mi na tento týden“. Při prvním nákupu ti Claude nabídne dotazník na spíž.
+Hotovo. Napiš Claudovi „nakup mi na tento týden“.
 
-### Zabezpečení
+## Použití
 
-Funnel je veřejný: na adresu se dostane kdokoli z internetu. Server nemá vlastní přihlašování, chrání ho jen tajný token v adrese; bez něj vrací 404.
+| Řekni | Co se stane |
+|---|---|
+| „nakup mi na tento týden“ / „na příští týden“ | nákup podle kalendáře v Cookidoo |
+| „nakup na recept r117476 pro 3 porce“ | jeden recept, přepočítaný na porce |
+| pošli odkaz na recept | recept z libovolného webu |
+| „co mám v plánu na tento týden?“ | jen vypíše jídelníček |
+| „najdi levnější variantu“ / „je to i bez laktózy?“ | porovná produkty a navrhne náhradu |
+| „co je z toho ve slevě?“ | zohlední akce na Rohlíku |
+| „nastav mi spíž“ | dotazník: co máš vždy doma |
+| „rýži mám vždycky“ / „na máslo se ptej“ | úprava spíže |
+| „vždycky ber BIO“ / „nejím lepek“ | trvalá preference |
+| „tu smetanu už nekupuj“ | zapomene obvyklý produkt |
 
-- Kdo adresu s tokenem zná, vidí tvůj jídelníček, spíž a obvyklé produkty a může je měnit. Ke košíku ani k účtu na Rohlíku se přes ni nedostane.
-- Adresu nikam nevkládej a nesdílej. Když unikne, změň `MCP_AUTH_TOKEN` v `.env`, spusť `docker compose up -d` a konektor v Claude přidej znovu s novou adresou.
-- Token se nezapisuje do logů serveru.
-- Server poslouchá jen na `127.0.0.1` uvnitř síťového prostoru kontejneru Tailscale, takže se na něj nedostane ani jiný kontejner na VPS.
-- Volitelně nastav `DOMAIN` v `.env` na celé jméno `JMENO.tvuj-tailnet.ts.net`. Server pak odmítne požadavky na jiné jméno hostitele.
+Při prvním nákupu ti Claude nabídne dotazník na spíž. Po každém potvrzeném nákupu si pamatuje, které produkty jsi koupil, a příště je nabídne jako první.
 
-### Data a aktualizace
+Poslední tři řádky tabulky jsou příklady rad, které stojí na úsudku modelu a na nástrojích Rohlíku. Kód tohoto projektu je nepočítá, takže se jejich kvalita bude lišit model od modelu.
 
-Spíž, obvyklé produkty a preference leží ve svazku `data`, přihlášení k Tailscale ve svazku `tailscale_state`.
+## Bezpečnost
 
-```bash
-docker compose cp app:/data ./zaloha-data       # záloha
-git pull && docker compose up -d --build        # aktualizace
-```
+- Adresa je veřejná a chrání ji **jen tajný token**. Bez něj server vrací 404.
+- Kdo adresu s tokenem zná, vidí a může měnit tvůj jídelníček, spíž a obvyklé produkty. Ke košíku ani k účtu na Rohlíku se přes ni nedostane.
+- Adresu nesdílej. Když unikne: změň `MCP_AUTH_TOKEN`, spusť `docker compose up -d` a konektor přidej znovu.
+- Heslo ke Cookidoo leží na VPS v `.env`. Token se do logů nezapisuje.
 
-### Jiné možnosti
-
-- **Vlastní doména místo Tailscale.** `docker-compose.caddy.yml` dává před server Caddy, který si sám obstará HTTPS certifikát. Potřebuje `DOMAIN` v `.env`, DNS záznam na VPS a otevřené porty 80 a 443:
-  ```bash
-  docker compose -f docker-compose.caddy.yml up -d --build
-  ```
-- **Jen tailnet, bez veřejné adresy.** Funguje pouze na počítači (Claude Desktop, Claude Code), v telefonu ne. V `tailscale/funnel.json` smaž blok `AllowFunnel`; server pak uvidí jen zařízení v tvém tailnetu.
-- **Bez Dockeru.** `MCP_TRANSPORT=http MCP_AUTH_TOKEN=… python server.py` poslouchá na `127.0.0.1:8000` a HTTPS před něj musíš dát sám.
-
-## Bez pluginu: Claude Desktop (chat)
-
-Chat v Claude Desktop lokální servery z pluginu nenačítá, ale jdou připojit ručně.
+## Údržba
 
 ```bash
-git clone https://github.com/stepanbeseda/RohlikCookidoo.git
-cd RohlikCookidoo
-uv sync
+git pull && docker compose up -d --build     # aktualizace
+docker compose cp app:/data ./zaloha-data    # záloha spíže a paměti
+docker compose logs --tail 50                # když něco nejde
 ```
 
-Do sekce `"mcpServers"` v `~/Library/Application Support/Claude/claude_desktop_config.json` přidej:
+| Problém | Řešení |
+|---|---|
+| kontejner `tailscale` se restartuje | neplatný `TS_HOSTNAME` nebo auth key; viz `docker compose logs tailscale` |
+| Claude hlásí chybu přihlášení ke Cookidoo | zkontroluj e-mail a heslo v `.env` |
+| týdenní plán je prázdný | recepty musí být v kalendáři na cookidoo.cz v daném týdnu |
+| Rohlik chce přihlášení | v nastavení konektoru se přihlas znovu |
+
+## Jiné způsoby provozu
+
+<details>
+<summary>Vlastní doména místo Tailscale</summary>
+
+Před server se postaví Caddy, který si sám obstará HTTPS certifikát. Potřebuješ `DOMAIN` v `.env`, DNS záznam na VPS a otevřené porty 80 a 443. Tato varianta není vyzkoušená na skutečném serveru.
+
+```bash
+docker compose -f docker-compose.caddy.yml up -d --build
+```
+</details>
+
+<details>
+<summary>Jen v tailnetu, bez veřejné adresy</summary>
+
+V `tailscale/funnel.json` smaž blok `AllowFunnel`. Server pak uvidí jen zařízení ve tvém tailnetu. Funguje v Claude Desktop a Claude Code na počítači, **v telefonu ne**: konektory v telefonu volají servery Anthropicu, které ve tvém tailnetu nejsou.
+</details>
+
+<details>
+<summary>Lokálně jako plugin pro Claude Code</summary>
+
+Vyžaduje [uv](https://docs.astral.sh/uv/). Plugin se zeptá na přihlášení ke Cookidoo a přidá příkazy `/tyden`, `/recept` a `/url`. K Rohlíku se přihlásíš přes `/mcp`.
+
+```
+/plugin marketplace add stepanbeseda/RohlikCookidoo
+/plugin install rohlik-cookidoo@rohlik-cookidoo
+```
+</details>
+
+<details>
+<summary>Lokálně v Claude Desktop</summary>
+
+```bash
+git clone https://github.com/stepanbeseda/RohlikCookidoo.git && cd RohlikCookidoo && uv sync
+```
+
+Do `mcpServers` v `claude_desktop_config.json` přidej a aplikaci restartuj:
 
 ```json
 "kitchen": {
-  "command": "/absolutni/cesta/k/projektu/.venv/bin/python",
-  "args": ["/absolutni/cesta/k/projektu/server.py"],
+  "command": "/cesta/k/projektu/.venv/bin/python",
+  "args": ["/cesta/k/projektu/server.py"],
   "env": {
     "COOKIDOO_EMAIL": "tvuj@email.com",
     "COOKIDOO_PASSWORD": "tvoje_heslo",
-    "DATA_DIR": "/absolutni/cesta/k/projektu"
+    "DATA_DIR": "/cesta/k/projektu"
   }
 }
 ```
 
-Po uložení Claude Desktop ukonči (Cmd+Q) a znovu otevři.
+Rohlík přidej jako konektor s URL `https://mcp.rohlik.cz/mcp`.
+</details>
 
-Rohlík přidej jako konektor: **Settings → Connectors → Add custom connector**, URL `https://mcp.rohlik.cz/mcp`, a přihlas se v prohlížeči.
+## Omezení
 
-Do Project Instructions není potřeba nic vkládat. V chatu napiš „nakup mi na tento týden“, „nakup na recept r117476“ nebo pošli odkaz na recept.
-
-Cookidoo server čte z českého Cookidoo. Jinou zemi nastavíš proměnnými `COOKIDOO_COUNTRY` (výchozí `cz`) a `COOKIDOO_LANGUAGE` (výchozí `cs`).
-
-## Rohlík MCP
-
-Plugin používá oficiální server Rohlíku na `https://mcp.rohlik.cz/mcp`. Přihlašuje se přes OAuth, takže heslo k Rohlíku nikde neleží. Rohlík službu označuje jako experimentální a může ji kdykoli změnit; podmínky jsou v [dokumentaci Rohlíku](https://www.rohlik.cz/stranka/mcp-server).
-
-Server umí víc než nákup: rušit objednávky, měnit doručení, podávat reklamace. Postup, který Claude dostává ze serveru `kitchen`, mu říká, aby tyto nástroje při nákupu nepoužíval, pokud o to výslovně nepožádáš.
-
-Komunitní balíček [@tomaspavlin/rohlik-mcp](https://github.com/tomaspavlin/rohlik-mcp) funguje jako náhrada (postup zná i jeho nástroje), ale vyžaduje e-mail a heslo v konfiguraci.
-
-## Známá omezení
-
-- **Tvary slov.** Cookidoo vrací ingredience ve 2. pádě („másla“, „soli“). Sčítání a spíž si s tím poradí zjednodušeným odřezáváním koncovek, ne skutečným slovníkem, takže u neobvyklých slov se dvě podoby téže suroviny nemusí spojit.
-- **Podobné suroviny se nesčítají.** „Cibule“ a „žlutá cibule“ jsou dvě položky, stejně tak 2 lžíce oleje a 100 g oleje. Claude je při výběru produktu může spojit a řekne to.
-- **Počet balení.** Gramy proti litrům se počítají jako 1 g = 1 ml, což sedí pro vodu a mléko, méně pro olej nebo med. Kusy proti kilogramům (3 cibule a síťka 1 kg) spočítat nejde; nástroj to přizná a rozhodne Claude.
-- **Vlastní recepty.** Recepty, které sis v Cookidoo vytvořil sám, mají ingredience jako volný text. Server je vrací, ale není to vyzkoušené.
-- **Košík.** Rozdíl proti košíku počítá kód, ale obsah košíku mu předává Claude z textového výpisu Rohlíku. Před potvrzením si tabulku zkontroluj.
-- **Přihlášení k Rohlíku z pluginu.** Server a postup jsou ověřené přes konektor v aplikaci. Přihlášení přes `/mcp` u serveru deklarovaného pluginem vyzkoušené není.
-- **Nasazení na VPS.** Docker obraz se sestavuje a spouští v CI. Tailscale Funnel ani Caddy na skutečném VPS vyzkoušené nejsou, stejně jako přihlášení ke Cookidoo z adresy datacentra.
-- **Neoficiální API.** Cookidoo nemá veřejné API; knihovna `cookidoo-api` používá neveřejné rozhraní, které se může kdykoli změnit.
-
-## Bezpečnost
-
-- K Rohlíku se přihlašuje přes OAuth, heslo plugin nezná.
-- Heslo ke Cookidoo ukládá plugin do systémového úložiště hesel. Při ručním nastavení v `claude_desktop_config.json` leží na disku v čitelné podobě; soubor nesdílej.
-- Každý server dostává jen své vlastní přihlašovací údaje. Server `kitchen` nedostává žádné.
-- Oficiální server Rohlíku žádá u každého volání krátký popis účelu pro analytiku. Postup Claudovi ukládá psát ho obecně, bez osobních údajů.
-- Na VPS leží heslo ke Cookidoo v souboru `.env` v čitelné podobě. Nastav mu práva jen pro sebe (`chmod 600 .env`).
-- `.env`, `pantry.txt`, `products.json` a `preferences.json` jsou v `.gitignore`.
-
-## Řešení problémů
-
-- Server se nespustí: `/mcp` v Claude Code ukáže chybu. Ověř, že funguje `uv --version`.
-- Rohlík hlásí „Needs authentication“: v `/mcp` vyber server `rohlik` a přihlas se.
-- Cookidoo hlásí „login failed“: zkontroluj e-mail a heslo (`/plugin configure rohlik-cookidoo`).
-- Týdenní plán je prázdný: recepty musí být v kalendáři na webu cookidoo.cz v daném týdnu (pondělí až neděle).
-- V Claude Desktop se servery nezobrazují: zkontroluj logy v `~/Library/Logs/Claude/` a syntaxi JSON v konfiguraci.
+- Cookidoo nemá veřejné API; použitá knihovna `cookidoo-api` se může kdykoli rozbít. Rohlík svůj server označuje jako experimentální.
+- Spíž nezná množství: „máslo“ ve spíži znamená „mám doma“, ať recept chce 50 g nebo 500 g. Claude na větší množství upozorní.
+- Podobné suroviny se nesčítají („cibule“ a „žlutá cibule“, lžíce a gramy téže suroviny).
+- Pády českých slov se sjednocují zjednodušeně, u neobvyklých slov se dvě podoby téže suroviny spojit nemusí.
 
 ## Vývoj
 
 ```bash
 uv sync --extra dev
-uv run ruff check .
-uv run pytest
-claude plugin validate . --strict
+uv run ruff check . && uv run pytest
 ```
 
-Plugin z pracovní složky vyzkoušíš příkazem `claude --plugin-dir .`.
-
-- `rohlik_cookidoo/` – jádro bez závislosti na síti (`ingredients.py`, `pantry.py`, `packages.py`, `cart.py`, `memory.py`, `shopping.py`, `text.py`), klient Cookidoo (`cookidoo.py`), server (`server.py`) a postup pro model (`guide.py`)
-- `skills/` – příkazy `/tyden`, `/recept`, `/url`
-- `.claude-plugin/` – manifest pluginu a marketplace
-
-Testy a lint běží na GitHubu při každém pull requestu. Druhá úloha sestaví Docker obraz, spustí ho a ověří, že server odpovídá jen pod tajnou adresou.
+Kód je v `rohlik_cookidoo/`, vstupní bod je `server.py`. Testy, lint a sestavení Docker obrazu běží na GitHubu při každém pull requestu.
 
 ## Licence
 
