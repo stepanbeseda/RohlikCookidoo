@@ -2,6 +2,7 @@
 # Jeden název na řádek. Řádky začínající # jsou ignorovány.
 # Na pádu ani diakritice nezáleží ("máslo" odpovídá "másla" z receptu).
 # U podobných surovin ("olej" a "sezamový olej") Claude rozhodne a řekne ti to.
+# Otazník na začátku znamená "obvykle doma mám, ale zeptej se": ? máslo
 #
 # Při ručním nastavení zkopíruj: cp pantry.txt.example pantry.txt
 # S pluginem stačí Claudovi říct, co máš doma.
@@ -12,5 +13,5 @@ voda
 cukr krupice
 slunečnicový olej
 ocet
-máslo
+? máslo
 hladká mouka

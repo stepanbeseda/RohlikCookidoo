@@ -15,7 +15,7 @@ Repo je plugin pro Claude Code. Obsahuje tři příkazy a tři MCP servery:
 | Server | Co dělá | Přihlášení |
 |---|---|---|
 | `cookidoo` | čte týdenní plán a recepty z Cookidoo, nic nezapisuje | e-mail a heslo ke Cookidoo |
-| `kitchen` | sčítá ingredience z více receptů, porovnává je se spíží, počítá počet balení | žádné |
+| `kitchen` | sčítá ingredience z více receptů, porovnává je se spíží, počítá počet balení a co v košíku ještě chybí, pamatuje si tvoje obvyklé produkty | žádné |
 | `rohlik` | hledá produkty a plní košík ([@tomaspavlin/rohlik-mcp](https://github.com/tomaspavlin/rohlik-mcp) 3.3.0) | e-mail a heslo k Rohlíku |
 
 Sčítání a porovnání se spíží dělá kód, Claude vybírá produkty. Postup, kterým se Claude řídí, je v [shared/shopping-guide.md](shared/shopping-guide.md).
@@ -75,7 +75,25 @@ Dál můžeš říct:
 
 - **počet porcí:** „/recept r117476 pro 3 porce“
 - **preferenci:** „ber BIO“, „nejlevnější“, „značky Rohlíku“; výchozí je rozumný poměr ceny a kvality
-- **spíž:** „rýži mám vždycky doma“, „došla mi mouka“
+- **trvalou preferenci nebo dietu:** „vždycky ber BIO“, „nejím lepek“ – Claude si ji uloží a příště se podle ní řídí
+- **spíž:** „rýži mám vždycky doma“, „na máslo se mě vždycky zeptej“, „mouku už doma nedržím“
+- **produkt se ti nelíbil:** „tu smetanu už nekupuj“
+
+## Co si plugin pamatuje
+
+Vedle spíže si plugin ukládá dva malé soubory na tvém počítači, nikam je neposílá:
+
+- **Obvyklé produkty** (`products.json`). Po potvrzeném nákupu si Claude zapíše, který produkt jsi pro danou surovinu koupil. Příště ho nabídne jako první, pokud je stále v nabídce.
+- **Preference** (`preferences.json`). Jen to, o co ho výslovně požádáš: kvalita, dieta, čemu se vyhnout.
+
+Oba soubory leží vedle spíže a dají se smazat nebo ručně upravit.
+
+## Co počítá kód, ne model
+
+- **Součty ingrediencí** napříč recepty včetně převodů jednotek a přepočtu porcí.
+- **Počet balení** a **zbytek po uvaření**: když recept chce 200 g a balení má 1 kg, dozvíš se, že 800 g zbyde.
+- **Rozdíl proti košíku**: co už v košíku je, se nepřidá znovu. Opakované `/tyden` tak košík nezdvojí.
+- **Cena nákupu** a kolik chybí do minimální objednávky Rohlíku (749 Kč při doručení domů, stav z října 2026).
 
 ## Domácí zásobárna
 
@@ -88,6 +106,9 @@ Porovnání nezávisí na pádu ani na diakritice a má tři výsledky:
 | másla | máslo | doma, nekupuje se |
 | sezamový olej | olej | zkontroluj doma: ve spíži je něco podobného, Claude rozhodne a řekne ti to |
 | vepřové plece | | kupuje se |
+| másla | ? máslo | zeptá se: obvykle doma je, ale dochází |
+
+Řádek začínající otazníkem (`? máslo`) znamená „obvykle doma mám, ale zeptej se“. Hodí se na máslo, vejce nebo mléko. V chatu to nastavíš větou „na máslo se mě vždycky zeptej“.
 
 Spíž nezná množství. Když recepty chtějí 300 g másla, bere se máslo jako „doma“ a Claude na větší množství upozorní.
 
@@ -147,7 +168,8 @@ Rohlík provozuje vlastní server na `https://mcp.rohlik.cz/mcp` s přihlášen�
 - **Podobné suroviny se nesčítají.** „Cibule“ a „žlutá cibule“ jsou dvě položky, stejně tak 2 lžíce oleje a 100 g oleje. Claude je při výběru produktu může spojit a řekne to.
 - **Počet balení.** Gramy proti litrům se počítají jako 1 g = 1 ml, což sedí pro vodu a mléko, méně pro olej nebo med. Kusy proti kilogramům (3 cibule a síťka 1 kg) spočítat nejde; nástroj to přizná a rozhodne Claude.
 - **Vlastní recepty.** Recepty, které sis v Cookidoo vytvořil sám, mají ingredience jako volný text. Server je vrací, ale není to vyzkoušené.
-- **Košík.** Claude si před přidáním čte obsah košíku, aby nic nezdvojil. Je to pokyn pro model, ne kontrola v kódu.
+- **Košík.** Rozdíl proti košíku počítá kód, ale obsah košíku mu předává Claude z textového výpisu Rohlíku. Před potvrzením si tabulku zkontroluj.
+- **Minimální objednávka.** Hodnota 749 Kč je v kódu napevno jako výchozí. Když ji Rohlík změní, upozornění nebude sedět.
 - **Neoficiální API.** Cookidoo nemá veřejné API. Knihovna `cookidoo-api` i Rohlik MCP balíček používají neveřejná rozhraní, která se mohou kdykoli změnit.
 
 ## Bezpečnost
@@ -155,7 +177,7 @@ Rohlík provozuje vlastní server na `https://mcp.rohlik.cz/mcp` s přihlášen�
 - Plugin ukládá hesla do systémového úložiště hesel. Při ručním nastavení v `claude_desktop_config.json` leží hesla na disku v čitelné podobě; soubor nesdílej.
 - Každý server dostává jen své vlastní přihlašovací údaje. Server `kitchen` nedostává žádné.
 - Verze balíčku `@tomaspavlin/rohlik-mcp` je zafixovaná. Při změně verze si ověř, co instaluješ, balíček dostává tvoje heslo k Rohlíku.
-- `.env` a `pantry.txt` jsou v `.gitignore`.
+- `.env`, `pantry.txt`, `products.json` a `preferences.json` jsou v `.gitignore`.
 
 ## Řešení problémů
 
@@ -175,7 +197,7 @@ claude plugin validate . --strict
 
 Plugin z pracovní složky vyzkoušíš příkazem `claude --plugin-dir .`.
 
-- `rohlik_cookidoo/` – jádro bez závislosti na síti (`ingredients.py`, `pantry.py`, `packages.py`, `text.py`) a oba servery
+- `rohlik_cookidoo/` – jádro bez závislosti na síti (`ingredients.py`, `pantry.py`, `packages.py`, `cart.py`, `memory.py`, `text.py`) a oba servery
 - `skills/` – příkazy `/tyden`, `/recept`, `/url`
 - `shared/shopping-guide.md` – postup, kterým se Claude řídí
 - `.claude-plugin/` – manifest pluginu a marketplace

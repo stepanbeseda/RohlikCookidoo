@@ -37,6 +37,14 @@ def test_unrelated_ingredient_is_not_in_pantry(ingredient):
     assert match_pantry(ingredient, PANTRY) == (None, None)
 
 
+def test_question_mark_means_ask_first():
+    pantry = ["sůl", "? máslo", "?vejce"]
+    assert match_pantry("másla", pantry) == ("ask", "máslo")
+    assert match_pantry("vajec", pantry) == ("ask", "vejce")
+    assert match_pantry("soli", pantry) == ("have", "sůl")
+    assert match_pantry("arašídové máslo", pantry) == ("check", "máslo")
+
+
 def test_exact_match_wins_over_similar():
     assert match_pantry("oleje", ["slunečnicový olej", "olej"]) == ("have", "olej")
 
@@ -67,6 +75,24 @@ class TestPantryFile:
         pantry = str(tmp_path / "data" / "plugin" / "pantry.txt")
         assert add_pantry_item("sůl", pantry) is True
         assert read_pantry_lines(pantry) == ["sůl"]
+
+    def test_add_ask_first_and_switch_mode(self, tmp_path):
+        pantry = tmp_path / "pantry.txt"
+        path = str(pantry)
+        assert add_pantry_item("máslo", path, ask=True) is True
+        assert pantry.read_text(encoding="utf-8") == "? máslo\n"
+        assert add_pantry_item("másla", path, ask=True) is False
+        # the same item without the flag switches it to "always at home"
+        assert add_pantry_item("máslo", path) is True
+        assert pantry.read_text(encoding="utf-8") == "máslo\n"
+        assert add_pantry_item("? máslo", path) is True
+        assert read_pantry_lines(path) == ["? máslo"]
+
+    def test_remove_ask_first_item(self, tmp_path):
+        pantry = tmp_path / "pantry.txt"
+        pantry.write_text("sůl\n? máslo\n", encoding="utf-8")
+        assert remove_pantry_item("máslo", str(pantry)) is True
+        assert read_pantry_lines(str(pantry)) == ["sůl"]
 
     def test_add_to_file_without_trailing_newline(self, tmp_path):
         pantry = tmp_path / "pantry.txt"

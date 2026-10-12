@@ -1,6 +1,8 @@
 # Sensitive data - NEVER commit!
 .env
 pantry.txt
+products.json
+preferences.json
 
 # Python
 __pycache__/
