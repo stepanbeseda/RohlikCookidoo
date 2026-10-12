@@ -1,7 +1,13 @@
 """Working out what to add to a cart that may already hold some of it."""
 
-# Rohlik.cz minimum order for home delivery, as published in October 2026
+# Fallback only: Rohlik.cz minimum order for home delivery in October 2026.
+# The official Rohlik MCP reports the current value in the cart.
 DEFAULT_MINIMUM_ORDER = 749.0
+
+
+def _product_id(line: dict) -> int | str:
+    """Read the product ID under either spelling used by Rohlik servers."""
+    return line["product_id"] if "product_id" in line else line["productId"]
 
 
 def plan_cart_additions(
@@ -15,7 +21,8 @@ def plan_cart_additions(
     Args:
         items: wanted products: {"name", "product_id", "packages", "price"}.
             The same product listed twice is merged.
-        cart: current cart lines: {"product_id", "quantity"}.
+        cart: current cart lines: {"product_id", "quantity"}. `productId` is
+            accepted in place of `product_id` in both lists.
         cart_total: current cart value.
         minimum_order: order value below which the shop will not deliver.
 
@@ -24,19 +31,19 @@ def plan_cart_additions(
     """
     in_cart: dict[str, float] = {}
     for line in cart or []:
-        key = str(line["product_id"])
+        key = str(_product_id(line))
         in_cart[key] = in_cart.get(key, 0) + line.get("quantity", 1)
 
     wanted: dict[str, dict] = {}
     for item in items:
-        key = str(item["product_id"])
+        key = str(_product_id(item))
         if key in wanted:
             wanted[key]["packages"] += item["packages"]
             wanted[key]["name"] += f", {item['name']}"
         else:
             wanted[key] = {
                 "name": item["name"],
-                "product_id": item["product_id"],
+                "product_id": _product_id(item),
                 "packages": item["packages"],
                 "price": float(item.get("price") or 0),
             }

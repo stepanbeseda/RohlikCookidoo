@@ -59,13 +59,15 @@ class PackageRequest(TypedDict):
 
 class WantedProduct(TypedDict):
     name: str
-    product_id: int
     packages: int
+    product_id: NotRequired[int]
+    productId: NotRequired[int]
     price: NotRequired[float]
 
 
 class CartLine(TypedDict):
-    product_id: int
+    product_id: NotRequired[int]
+    productId: NotRequired[int]
     quantity: NotRequired[float]
 
 
@@ -179,6 +181,8 @@ def plan_cart(
 
     Pass the chosen products (`name`, `product_id`, `packages`, `price` per
     package) and the current cart (`product_id`, `quantity`) with its total.
+    `productId` works in place of `product_id`. Pass the shop's own minimum
+    order as `minimum_order` when the cart reports it.
 
     Returns `to_add`, ready for the shop's add-to-cart tool and already
     reduced by what the cart holds, the per-product `lines`, `added_total`,
