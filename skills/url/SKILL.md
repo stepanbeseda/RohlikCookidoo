@@ -4,6 +4,8 @@ description: Shop on Rohlik.cz for a recipe from any web page. Use when the user
 argument-hint: "<link to a recipe>"
 ---
 
-Read `${CLAUDE_PLUGIN_ROOT}/shared/shopping-guide.md` and follow it in **Web page** mode.
+Shop for a recipe from a web page: read the page with whatever web tool you have and extract the recipe name, the number of servings and every ingredient as `{"name": ..., "quantity": ...}`. If you cannot read the page, ask the user to paste the ingredient list. Then call `prepare_shopping` on the kitchen MCP server with the recipe in `recipes` and follow that server's instructions from there.
+
+If you have not seen the kitchen server's instructions in this conversation, call its `get_shopping_guide` tool first. Talk to the user in Czech.
 
 What the user added after the command: $ARGUMENTS

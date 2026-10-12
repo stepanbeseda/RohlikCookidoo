@@ -1,5 +1,8 @@
 """Working out what to add to a cart that may already hold some of it."""
 
+from rohlik_cookidoo.ingredients import to_base_unit
+from rohlik_cookidoo.packages import packages_needed
+
 # Fallback only: Rohlik.cz minimum order for home delivery in October 2026.
 # The official Rohlik MCP reports the current value in the cart.
 DEFAULT_MINIMUM_ORDER = 749.0
@@ -73,4 +76,78 @@ def plan_cart_additions(
         "cart_total_after": new_total,
         "minimum_order": minimum_order,
         "missing_to_minimum": round(max(0.0, minimum_order - new_total), 2),
+    }
+
+
+def plan_purchase(
+    items: list[dict],
+    cart: list[dict] | None = None,
+    cart_total: float = 0.0,
+    minimum_order: float = DEFAULT_MINIMUM_ORDER,
+) -> dict:
+    """Turn chosen products into package counts and cart additions in one step.
+
+    Args:
+        items: one per ingredient: {"name", "product_id", "package_amount",
+            "price", "quantity", "unit"}. An explicit "packages" overrides the
+            calculation. Ingredients sharing a product are combined before
+            rounding up, so 200 g + 300 g from a 500 g package is one package.
+        cart, cart_total, minimum_order: as in plan_cart_additions.
+
+    Returns the plan of plan_cart_additions; each line also has `exact`,
+    `note` and `leftover` from the package calculation.
+    """
+    groups: dict[str, list[dict]] = {}
+    for item in items:
+        groups.setdefault(str(_product_id(item)), []).append(item)
+
+    wanted, details = [], {}
+    for key, group in groups.items():
+        first = group[0]
+        detail = _package_plan(group)
+        details[key] = detail
+        wanted.append({
+            "name": ", ".join(item["name"] for item in group),
+            "product_id": _product_id(first),
+            "packages": detail["packages"],
+            "price": first.get("price"),
+        })
+
+    plan = plan_cart_additions(wanted, cart, cart_total, minimum_order)
+    for line in plan["lines"]:
+        detail = details[str(line["product_id"])]
+        line.update(exact=detail["exact"], note=detail["note"], leftover=detail["leftover"])
+    return plan
+
+
+def _package_plan(group: list[dict]) -> dict:
+    """Package count for one product needed by one or more ingredients."""
+    package_amount = group[0].get("package_amount") or ""
+    explicit = [item["packages"] for item in group if item.get("packages")]
+    if explicit:
+        counted = [item for item in group if not item.get("packages")]
+        extra = sum(
+            packages_needed(i.get("quantity"), i.get("unit"), package_amount)["packages"]
+            for i in counted
+        )
+        return {"packages": sum(explicit) + extra, "exact": True, "note": "", "leftover": None}
+
+    if len(group) == 1:
+        item = group[0]
+        return packages_needed(item.get("quantity"), item.get("unit"), package_amount)
+
+    amounts = [
+        to_base_unit(i["quantity"], i.get("unit")) for i in group if i.get("quantity") is not None
+    ]
+    kinds = {kind for _, _, kind in amounts}
+    if len(amounts) == len(group) and len(kinds) == 1:
+        total = sum(amount for amount, _, _ in amounts)
+        return packages_needed(total, amounts[0][1], package_amount)
+
+    parts = [packages_needed(i.get("quantity"), i.get("unit"), package_amount) for i in group]
+    return {
+        "packages": sum(part["packages"] for part in parts),
+        "exact": False,
+        "note": "amounts in different units were counted separately",
+        "leftover": None,
     }

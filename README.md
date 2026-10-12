@@ -10,15 +10,16 @@ Claude přečte týdenní plán receptů, sečte ingredience, odečte suroviny, 
 
 ## Jak to funguje
 
-Repo je plugin pro Claude Code. Obsahuje tři příkazy a tři MCP servery:
+Stačí dva MCP servery:
 
 | Server | Co dělá | Přihlášení |
 |---|---|---|
-| `cookidoo` | čte týdenní plán a recepty z Cookidoo, nic nezapisuje | e-mail a heslo ke Cookidoo |
-| `kitchen` | sčítá ingredience z více receptů, porovnává je se spíží, počítá počet balení a co v košíku ještě chybí, pamatuje si tvoje obvyklé produkty | žádné |
-| `rohlik` | hledá produkty a plní košík; oficiální server Rohlíku `mcp.rohlik.cz` | OAuth v prohlížeči, bez hesla |
+| `kitchen` (tento projekt) | čte týdenní plán a recepty z Cookidoo, sčítá ingredience, porovnává je se spíží, počítá počet balení a co v košíku ještě chybí, pamatuje si tvoje obvyklé produkty | e-mail a heslo ke Cookidoo |
+| `rohlik` (oficiální server Rohlíku `mcp.rohlik.cz`) | hledá produkty a plní košík | OAuth v prohlížeči, bez hesla |
 
-Sčítání a porovnání se spíží dělá kód, Claude vybírá produkty. Postup, kterým se Claude řídí, je v [shared/shopping-guide.md](shared/shopping-guide.md).
+Sčítání, spíž a ceny počítá kód, Claude vybírá produkty. Postup nákupu si Claude bere přímo ze serveru `kitchen`, takže ho není potřeba nikam vkládat.
+
+Repo je zároveň plugin pro Claude Code s příkazy `/tyden`, `/recept` a `/url`.
 
 ## Co potřebuješ
 
@@ -98,7 +99,9 @@ Oba soubory leží vedle spíže a dají se smazat nebo ručně upravit.
 
 ## Domácí zásobárna
 
-Suroviny ve spíži se nekupují. Spíž je textový soubor, jedna surovina na řádek. Plugin ho drží ve své datové složce (`~/.claude/plugins/data/…/pantry.txt`), kde přežije aktualizace. Nejsnáz ho plníš v chatu; jako vzor poslouží [pantry.txt.example](pantry.txt.example).
+Suroviny ve spíži se nekupují. Spíž nemusíš psát ručně: když je prázdná, Claude ti při prvním nákupu nabídne krátký dotazník. Projde s tebou šest kategorií (základ, koření, mouky a pečení, oleje a dochucovadla, trvanlivé, čerstvé) a u každé stačí odpovědět jednou větou, třeba „všechno kromě rýže“. Kdykoli později ho spustíš větou „nastav mi spíž“.
+
+Spíž je textový soubor, jedna surovina na řádek. Plugin ho drží ve své datové složce (`~/.claude/plugins/data/…/pantry.txt`), kde přežije aktualizace. Ruční úprava je možná, vzor je v [pantry.txt.example](pantry.txt.example).
 
 Porovnání nezávisí na pádu ani na diakritice a má tři výsledky:
 
@@ -121,34 +124,27 @@ Chat v Claude Desktop lokální servery z pluginu nenačítá, ale jdou připoji
 git clone https://github.com/stepanbeseda/RohlikCookidoo.git
 cd RohlikCookidoo
 uv sync
-cp pantry.txt.example pantry.txt
 ```
 
 Do sekce `"mcpServers"` v `~/Library/Application Support/Claude/claude_desktop_config.json` přidej:
 
 ```json
-"cookidoo": {
-  "command": "/absolutni/cesta/k/projektu/.venv/bin/python",
-  "args": ["/absolutni/cesta/k/projektu/cookidoo_server.py"],
-  "env": {
-    "COOKIDOO_EMAIL": "tvuj@email.com",
-    "COOKIDOO_PASSWORD": "tvoje_heslo"
-  }
-},
 "kitchen": {
   "command": "/absolutni/cesta/k/projektu/.venv/bin/python",
-  "args": ["/absolutni/cesta/k/projektu/kitchen_server.py"],
+  "args": ["/absolutni/cesta/k/projektu/server.py"],
   "env": {
-    "PANTRY_PATH": "/absolutni/cesta/k/projektu/pantry.txt"
+    "COOKIDOO_EMAIL": "tvuj@email.com",
+    "COOKIDOO_PASSWORD": "tvoje_heslo",
+    "DATA_DIR": "/absolutni/cesta/k/projektu"
   }
 }
 ```
 
-Starší zápis přes `fastmcp run .../cookidoo_server.py` funguje dál. Po uložení Claude Desktop ukonči (Cmd+Q) a znovu otevři.
+Po uložení Claude Desktop ukonči (Cmd+Q) a znovu otevři.
 
 Rohlík přidej jako konektor: **Settings → Connectors → Add custom connector**, URL `https://mcp.rohlik.cz/mcp`, a přihlas se v prohlížeči.
 
-Potom v Claude Desktop vytvoř projekt a do **Project Instructions** vlož obsah souboru [shared/shopping-guide.md](shared/shopping-guide.md). V chatu pak piš `/tyden`, `/recept <ID>` nebo `/url <odkaz>`.
+Do Project Instructions není potřeba nic vkládat. V chatu napiš „nakup mi na tento týden“, „nakup na recept r117476“ nebo pošli odkaz na recept.
 
 Cookidoo server čte z českého Cookidoo. Jinou zemi nastavíš proměnnými `COOKIDOO_COUNTRY` (výchozí `cz`) a `COOKIDOO_LANGUAGE` (výchozí `cs`).
 
@@ -156,7 +152,7 @@ Cookidoo server čte z českého Cookidoo. Jinou zemi nastavíš proměnnými `C
 
 Plugin používá oficiální server Rohlíku na `https://mcp.rohlik.cz/mcp`. Přihlašuje se přes OAuth, takže heslo k Rohlíku nikde neleží. Rohlík službu označuje jako experimentální a může ji kdykoli změnit; podmínky jsou v [dokumentaci Rohlíku](https://www.rohlik.cz/stranka/mcp-server).
 
-Server umí víc než nákup: rušit objednávky, měnit doručení, podávat reklamace. Postup v `shared/shopping-guide.md` Claudovi říká, aby tyto nástroje při nákupu nepoužíval, pokud o to výslovně nepožádáš.
+Server umí víc než nákup: rušit objednávky, měnit doručení, podávat reklamace. Postup, který Claude dostává ze serveru `kitchen`, mu říká, aby tyto nástroje při nákupu nepoužíval, pokud o to výslovně nepožádáš.
 
 Komunitní balíček [@tomaspavlin/rohlik-mcp](https://github.com/tomaspavlin/rohlik-mcp) funguje jako náhrada (postup zná i jeho nástroje), ale vyžaduje e-mail a heslo v konfiguraci.
 
@@ -197,9 +193,8 @@ claude plugin validate . --strict
 
 Plugin z pracovní složky vyzkoušíš příkazem `claude --plugin-dir .`.
 
-- `rohlik_cookidoo/` – jádro bez závislosti na síti (`ingredients.py`, `pantry.py`, `packages.py`, `cart.py`, `memory.py`, `text.py`) a oba servery
+- `rohlik_cookidoo/` – jádro bez závislosti na síti (`ingredients.py`, `pantry.py`, `packages.py`, `cart.py`, `memory.py`, `shopping.py`, `text.py`), klient Cookidoo (`cookidoo.py`), server (`server.py`) a postup pro model (`guide.py`)
 - `skills/` – příkazy `/tyden`, `/recept`, `/url`
-- `shared/shopping-guide.md` – postup, kterým se Claude řídí
 - `.claude-plugin/` – manifest pluginu a marketplace
 
 Testy a lint běží na GitHubu při každém pull requestu.

@@ -64,6 +64,12 @@ class TestPantryFile:
         monkeypatch.setenv("PANTRY_PATH", str(pantry))
         assert read_pantry_lines() == ["pepř"]
 
+    def test_data_dir_is_used_when_no_pantry_path(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("PANTRY_PATH")
+        monkeypatch.setenv("DATA_DIR", str(tmp_path / "state"))
+        assert add_pantry_item("sůl") is True
+        assert (tmp_path / "state" / "pantry.txt").read_text(encoding="utf-8") == "sůl\n"
+
     def test_add_creates_file_and_skips_duplicates(self, tmp_path):
         pantry = str(tmp_path / "pantry.txt")
         assert add_pantry_item("sůl", pantry) is True
