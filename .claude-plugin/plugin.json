@@ -1,0 +1,79 @@
+{
+  "name": "rohlik-cookidoo",
+  "version": "0.3.0",
+  "description": "Turns a Cookidoo (Thermomix) meal plan or recipe into a Rohlik.cz shopping cart: sums ingredients, skips what is in the home pantry and fills the cart after confirmation.",
+  "author": {
+    "name": "stepanbeseda"
+  },
+  "homepage": "https://github.com/stepanbeseda/RohlikCookidoo",
+  "repository": "https://github.com/stepanbeseda/RohlikCookidoo",
+  "license": "MIT",
+  "userConfig": {
+    "cookidoo_email": {
+      "type": "string",
+      "title": "Cookidoo e-mail",
+      "description": "E-mail of your Cookidoo account",
+      "required": true
+    },
+    "cookidoo_password": {
+      "type": "string",
+      "title": "Cookidoo password",
+      "description": "Password of your Cookidoo account",
+      "required": true,
+      "sensitive": true
+    },
+    "cookidoo_country": {
+      "type": "string",
+      "title": "Cookidoo country",
+      "description": "Country code of your Cookidoo site, e.g. cz, sk, de",
+      "default": "cz"
+    },
+    "cookidoo_language": {
+      "type": "string",
+      "title": "Cookidoo language",
+      "description": "Language code of your Cookidoo site, e.g. cs, sk, de-DE",
+      "default": "cs"
+    },
+    "rohlik_email": {
+      "type": "string",
+      "title": "Rohlik e-mail",
+      "description": "E-mail of your Rohlik.cz account",
+      "required": true
+    },
+    "rohlik_password": {
+      "type": "string",
+      "title": "Rohlik password",
+      "description": "Password of your Rohlik.cz account",
+      "required": true,
+      "sensitive": true
+    }
+  },
+  "mcpServers": {
+    "cookidoo": {
+      "command": "uv",
+      "args": ["run", "--frozen", "--project", "${CLAUDE_PLUGIN_ROOT}", "python", "${CLAUDE_PLUGIN_ROOT}/cookidoo_server.py"],
+      "env": {
+        "COOKIDOO_EMAIL": "${user_config.cookidoo_email}",
+        "COOKIDOO_PASSWORD": "${user_config.cookidoo_password}",
+        "COOKIDOO_COUNTRY": "${user_config.cookidoo_country}",
+        "COOKIDOO_LANGUAGE": "${user_config.cookidoo_language}"
+      }
+    },
+    "kitchen": {
+      "command": "uv",
+      "args": ["run", "--frozen", "--project", "${CLAUDE_PLUGIN_ROOT}", "python", "${CLAUDE_PLUGIN_ROOT}/kitchen_server.py"],
+      "env": {
+        "PANTRY_PATH": "${CLAUDE_PLUGIN_DATA}/pantry.txt"
+      }
+    },
+    "rohlik": {
+      "command": "npx",
+      "args": ["-y", "@tomaspavlin/rohlik-mcp@3.3.0"],
+      "env": {
+        "ROHLIK_USERNAME": "${user_config.rohlik_email}",
+        "ROHLIK_PASSWORD": "${user_config.rohlik_password}",
+        "ROHLIK_BASE_URL": "https://www.rohlik.cz"
+      }
+    }
+  }
+}

@@ -4,7 +4,7 @@ Deterministic helpers for turning recipes into a shopping list: summing
 ingredients across recipes, checking them against the home pantry and working
 out how many packages to buy. It needs no credentials and no network.
 
-Run it with `fastmcp run kitchen_server.py` from the repository root.
+Run it with `python kitchen_server.py` from the repository root.
 PANTRY_PATH overrides the pantry file location (default: pantry.txt in the
 repository root).
 """

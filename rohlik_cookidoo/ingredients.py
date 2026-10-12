@@ -170,11 +170,6 @@ def parse_ingredient(name: str, quantity: str = "") -> ParsedIngredient:
     )
 
 
-def parse_single_ingredient(text: str) -> ParsedIngredient:
-    """Parse one free-text ingredient line, e.g. "200 g hladká mouka"."""
-    return parse_ingredient(text)
-
-
 def parse_ingredients(raw_ingredients: list[str]) -> list[ParsedIngredient]:
     """Parse free-text ingredient lines, skipping blank ones."""
     return [parse_ingredient(text) for text in raw_ingredients if text.strip()]
@@ -227,7 +222,7 @@ def format_quantity(quantity: float | None, unit: str | None) -> str:
     """Format an amount with its unit for display."""
     if quantity is None:
         return "dle chuti"
-    text = str(int(quantity)) if quantity == int(quantity) else f"{quantity:.1f}"
+    text = f"{quantity:.2f}".rstrip("0").rstrip(".")
     return f"{text} {unit}" if unit else text
 
 
@@ -291,20 +286,3 @@ def aggregate_ingredients(
                 entry.total_quantity += quantity
 
     return result
-
-
-def display_aggregated_ingredients(aggregated: list[AggregatedIngredient]) -> None:
-    """Print aggregated ingredients, shared ones first."""
-    shared = [a for a in aggregated if len(a.sources) > 1]
-    unique = [a for a in aggregated if len(a.sources) == 1]
-
-    if shared:
-        print("\n=== Společné ingredience (z více receptů) ===")
-        for a in shared:
-            print(f"  {a.name}: {format_quantity(a.total_quantity, a.unit)}  [{', '.join(a.sources)}]")
-
-    print("\n=== Jedinečné ingredience ===")
-    for a in unique:
-        print(f"  {a.name}: {format_quantity(a.total_quantity, a.unit)}  [{a.sources[0]}]")
-
-    print(f"\nCelkem: {len(aggregated)} ingrediencí ({len(shared)} společných)")

@@ -63,6 +63,11 @@ class TestPantryFile:
         assert add_pantry_item("rýže", pantry) is True
         assert read_pantry_lines(pantry) == ["sůl", "rýže"]
 
+    def test_add_creates_missing_directory(self, tmp_path):
+        pantry = str(tmp_path / "data" / "plugin" / "pantry.txt")
+        assert add_pantry_item("sůl", pantry) is True
+        assert read_pantry_lines(pantry) == ["sůl"]
+
     def test_add_to_file_without_trailing_newline(self, tmp_path):
         pantry = tmp_path / "pantry.txt"
         pantry.write_text("sůl", encoding="utf-8")

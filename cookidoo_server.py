@@ -1,4 +1,4 @@
-"""Entry point for `fastmcp run cookidoo_server.py`."""
+"""Entry point of the Cookidoo MCP server: `python cookidoo_server.py`."""
 
 from rohlik_cookidoo.cookidoo_server import mcp
 

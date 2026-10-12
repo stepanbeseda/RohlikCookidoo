@@ -1,0 +1,16 @@
+{
+  "name": "rohlik-cookidoo",
+  "owner": {
+    "name": "stepanbeseda"
+  },
+  "metadata": {
+    "description": "Cookidoo meal plans and recipes as a Rohlik.cz shopping cart."
+  },
+  "plugins": [
+    {
+      "name": "rohlik-cookidoo",
+      "source": ".",
+      "description": "Turns a Cookidoo (Thermomix) meal plan or recipe into a Rohlik.cz shopping cart."
+    }
+  ]
+}

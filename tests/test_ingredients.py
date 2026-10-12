@@ -225,5 +225,7 @@ def test_scale_ingredients():
 def test_format_quantity():
     assert format_quantity(500, "g") == "500 g"
     assert format_quantity(1.5, "lžíce") == "1.5 lžíce"
+    assert format_quantity(0.25, "lžička") == "0.25 lžička"
+    assert format_quantity(2 / 3, "kg") == "0.67 kg"
     assert format_quantity(3, None) == "3"
     assert format_quantity(None, None) == "dle chuti"

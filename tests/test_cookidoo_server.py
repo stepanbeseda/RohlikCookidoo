@@ -3,7 +3,6 @@
 from datetime import date
 from types import SimpleNamespace
 
-from main import planned_recipe_ids
 from rohlik_cookidoo.cookidoo_server import (
     custom_recipe_to_dict,
     recipe_to_dict,
@@ -56,16 +55,7 @@ class TestWeekToDict:
 
     def test_empty_week(self):
         result = week_to_dict([], date(2026, 10, 12))
-        assert result["recipe_count"] == 0
-        assert planned_recipe_ids(result) == []
-
-    def test_feeds_planned_recipe_ids(self):
-        days = [
-            _day("2026-10-12", "Pondělí", [("r1", "A")]),
-            _day("2026-10-14", "Středa", [("r2", "B"), ("r3", "C")]),
-        ]
-        plan = week_to_dict(days, date(2026, 10, 12))
-        assert planned_recipe_ids(plan) == [("r1", "A"), ("r2", "B"), ("r3", "C")]
+        assert result == {"week_start": "2026-10-12", "recipe_count": 0, "days": []}
 
 
 class TestRecipeToDict:

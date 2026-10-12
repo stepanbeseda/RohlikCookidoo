@@ -1,10 +1,10 @@
 # Suroviny, které máš obvykle doma a nekupuješ je.
 # Jeden název na řádek. Řádky začínající # jsou ignorovány.
-# Porovnává se bez diakritiky a částečnou shodou: položka "olej" vyřadí z nákupu
-# i "sezamový olej". Piš proto položky konkrétně.
+# Na pádu ani diakritice nezáleží ("máslo" odpovídá "másla" z receptu).
+# U podobných surovin ("olej" a "sezamový olej") Claude rozhodne a řekne ti to.
 #
-# Zkopíruj tento soubor: cp pantry.txt.example pantry.txt
-# a uprav podle svých zásob.
+# Při ručním nastavení zkopíruj: cp pantry.txt.example pantry.txt
+# S pluginem stačí Claudovi říct, co máš doma.
 
 sůl
 pepř
