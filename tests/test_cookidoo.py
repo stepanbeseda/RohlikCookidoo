@@ -84,3 +84,56 @@ class TestRecipeToDict:
         assert custom_recipe_to_dict(recipe)["ingredients"] == [
             {"name": "200 g mouky", "quantity": ""}
         ]
+
+
+class TestSignIn:
+    """Sign-in must happen once even when several calls arrive together."""
+
+    def _client(self, monkeypatch, expire_first=0):
+        import asyncio
+
+        from cookidoo_api.exceptions import CookidooAuthException
+
+        from rohlik_cookidoo.cookidoo import CookidooClient
+
+        client = CookidooClient()
+        logins = []
+        expired = {"left": expire_first}
+
+        async def fake_login():
+            await asyncio.sleep(0.01)  # give other callers time to pile up
+            client._api = SimpleNamespace(number=len(logins) + 1)
+            logins.append(client._api)
+            return client._api
+
+        async def operation(api):
+            await asyncio.sleep(0)
+            if api.number == 1 and expired["left"] > 0:
+                expired["left"] -= 1
+                raise CookidooAuthException("expired")
+            return api.number
+
+        monkeypatch.setattr(client, "_login", fake_login)
+        return client, logins, operation
+
+    def test_concurrent_first_calls_sign_in_once(self, monkeypatch):
+        import asyncio
+
+        client, logins, operation = self._client(monkeypatch)
+
+        async def run():
+            return await asyncio.gather(*(client._call(operation) for _ in range(5)))
+
+        assert asyncio.run(run()) == [1, 1, 1, 1, 1]
+        assert len(logins) == 1
+
+    def test_expired_session_is_renewed_once_for_all_callers(self, monkeypatch):
+        import asyncio
+
+        client, logins, operation = self._client(monkeypatch, expire_first=3)
+
+        async def run():
+            return await asyncio.gather(*(client._call(operation) for _ in range(3)))
+
+        assert asyncio.run(run()) == [2, 2, 2]
+        assert len(logins) == 2

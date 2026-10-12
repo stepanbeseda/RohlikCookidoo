@@ -8,6 +8,7 @@ from environment variables:
     COOKIDOO_LANGUAGE                   language code, default "cs"
 """
 
+import asyncio
 import os
 import re
 from collections.abc import Awaitable, Callable
@@ -87,6 +88,8 @@ class CookidooClient:
     def __init__(self) -> None:
         self._session: ClientSession | None = None
         self._api: Cookidoo | None = None
+        # Several tool calls can arrive at once; only one of them may sign in
+        self._login_lock = asyncio.Lock()
 
     async def _login(self) -> Cookidoo:
         email = os.getenv("COOKIDOO_EMAIL")
@@ -102,28 +105,42 @@ class CookidooClient:
                 f"Unknown Cookidoo localization: country={country!r}, language={language!r}."
             )
 
-        if self._session is not None:
-            await self._session.close()
         # The Cookidoo login flow sets cookies across domains
-        self._session = ClientSession(cookie_jar=CookieJar(unsafe=True))
+        session = ClientSession(cookie_jar=CookieJar(unsafe=True))
         api = Cookidoo(
-            self._session,
+            session,
             CookidooConfig(email=email, password=password, localization=options[0]),
         )
         try:
             await api.login()
         except CookidooException as e:
+            await session.close()
             raise CookidooError(f"Cookidoo login failed: {e}") from e
-        self._api = api
+
+        previous = self._session
+        self._session, self._api = session, api
+        if previous is not None:
+            await previous.close()
         return api
 
+    async def _signed_in(self, stale: Cookidoo | None = None) -> Cookidoo:
+        """Return a signed-in client, signing in once however many callers wait.
+
+        `stale` is a client whose session expired: sign in again unless another
+        caller has already replaced it.
+        """
+        async with self._login_lock:
+            if self._api is None or self._api is stale:
+                return await self._login()
+            return self._api
+
     async def _call(self, operation: Callable[[Cookidoo], Awaitable[Any]]) -> Any:
-        api = self._api or await self._login()
+        api = self._api or await self._signed_in()
         try:
             try:
                 return await operation(api)
             except CookidooAuthException:
-                return await operation(await self._login())
+                return await operation(await self._signed_in(stale=api))
         except CookidooException as e:
             raise CookidooError(f"Cookidoo request failed: {e}") from e
 
