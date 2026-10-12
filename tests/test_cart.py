@@ -47,6 +47,12 @@ def test_same_product_for_two_ingredients_is_merged():
     assert plan["added_total"] == 30
 
 
+def test_product_id_spelling_of_the_official_server_is_accepted():
+    items = [{"name": "cibule", "productId": 1349783, "packages": 3, "price": 2.53}]
+    plan = plan_cart_additions(items, [{"productId": 1349783, "quantity": 1}], minimum_order=749)
+    assert plan["to_add"] == [{"product_id": 1349783, "quantity": 2}]
+
+
 def test_missing_price_counts_as_zero():
     plan = plan_cart_additions([{"name": "x", "product_id": 1, "packages": 2}])
     assert plan["to_add"] == [{"product_id": 1, "quantity": 2}]

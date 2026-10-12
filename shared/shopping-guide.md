@@ -11,10 +11,26 @@ Three MCP servers do the work:
   `plan_cart`, the pantry tools (`get_pantry_items`, `add_to_pantry`,
   `remove_from_pantry`) and the memory tools (`get_shopping_preferences`,
   `set_shopping_preference`, `remember_product`, `forget_product`)
-- **rohlik**: product search and the cart. Tool names depend on the Rohlik
-  server in use; with `@tomaspavlin/rohlik-mcp` they are
+- **rohlik**: product search and the cart. With Rohlik's official server
+  (`mcp.rohlik.cz`) the tools are:
+  - `batch_search_products(queries=[{"keyword": ...}])`: up to 4 queries per
+    call, 5 products each. Each product has `productId`, `productName`,
+    `price`, `textualAmount` (the package size), `inStock`, `favourite` and
+    `badges` (for example `bio`).
+  - `get_cart()`: `items`, `totalPrice` and `minimalOrderPrice`.
+  - `add_items_to_cart(items=[{"productId": ..., "quantity": ...}])`.
+  - `get_checkout_link()`: the link where the user finishes the order.
+
+  These tools take a `context` argument: give one generic sentence about the
+  goal, with no personal data.
+
+  With the community package `@tomaspavlin/rohlik-mcp` the same steps are
   `search_products(product_name, limit)`, `get_cart_content()` and
   `add_to_cart(products=[{product_id, quantity}])`.
+
+The official Rohlik server also has tools that change orders, the checkout,
+delivery slots, claims and the account. Do not use them as part of shopping;
+use one only when the user asks for exactly that.
 
 ## 1. Collect the recipes
 
@@ -70,13 +86,16 @@ you decided for the similar items.
 
 For each ingredient to buy:
 
-1. Search Rohlik for it. Recipes use the Czech genitive ("másla", "kysaného
-   zelí"); search with the basic form ("máslo", "kysané zelí"). Drop
-   preparation words ("nakrájená", "změklého").
-2. If the ingredient has a `usual_product` and the search still offers it,
-   take it. Otherwise pick one product by the user's stored or stated
-   preference. The default is good value: a reasonable quality at a fair unit
-   price, neither the cheapest nor the most expensive.
+1. Search Rohlik for it, several ingredients per call where the server allows
+   it. Recipes use the Czech genitive ("másla", "kysaného zelí"); search with
+   the basic form ("máslo", "kysané zelí"). Drop preparation words
+   ("nakrájená", "změklého").
+2. If the ingredient has a `usual_product` and the search still offers it in
+   stock, take it. Next prefer a product the user marked as a favourite.
+   Otherwise pick one product by the user's stored or stated preference. The
+   default is good value: a reasonable quality at a fair unit price, neither
+   the cheapest nor the most expensive. Never pick a product that is out of
+   stock.
 3. Respect the diet and things to avoid. If no product fits, or the product is
    sold out, offer the closest substitute and say why; do not swap silently.
 4. Lines that are clearly the same product ("cibule" and "žlutá cibule") can
@@ -89,9 +108,10 @@ Rohlik shows it. When a result has `exact: false`, read its `note` and use
 your judgement (three onions against a 1 kg net is one package).
 
 Finally read the current cart and call `plan_cart` with the chosen products,
-their package counts and prices, and the cart's lines and total. It returns
-what is still missing from the cart and what it costs. Do not work that out
-yourself.
+their package counts and prices, and the cart's lines and total. Pass the
+cart's `minimalOrderPrice` as `minimum_order` when the cart reports one. The
+tool returns what is still missing from the cart and what it costs. Do not
+work that out yourself.
 
 ## 4. Confirm, then fill the cart
 
@@ -105,8 +125,10 @@ Mention leftovers worth knowing about: an opened package where most of it
 remains (`leftover` from `plan_packages`), especially of fresh food.
 
 Ask for confirmation. Add to the cart only after a clear yes, passing `to_add`
-from `plan_cart`. Then report what was added and what failed, and call
-`remember_product` for every product that was added.
+from `plan_cart` (rename `product_id` to the key the Rohlik tool expects).
+Then report what was added and what failed, call `remember_product` for every
+product that was added, and give the user the checkout link if the server
+offers one.
 
 ## Rules
 
