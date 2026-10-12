@@ -1,9 +1,8 @@
 """Application configuration: credentials and user preferences."""
 
 import os
-import unicodedata
-from enum import Enum
 from dataclasses import dataclass
+from enum import Enum
 
 from dotenv import load_dotenv
 
@@ -77,54 +76,6 @@ def get_quality_preference() -> QualityPreference:
             print(f"Vybrána preference: {selected.value}")
             return selected
         print("Neplatná volba, zkus to znovu.")
-
-
-def _normalize(text: str) -> str:
-    """Strip diacritics and lowercase the text."""
-    normalized = unicodedata.normalize("NFD", text)
-    without_diacritics = "".join(
-        c for c in normalized if unicodedata.category(c) != "Mn"
-    )
-    return without_diacritics.lower().strip()
-
-
-def read_pantry_lines(path: str | None = None) -> list[str]:
-    """Read the pantry file and return its items as written.
-
-    The file is `path`, or PANTRY_PATH, or pantry.txt next to this module.
-    Blank lines and lines starting with # are skipped. Returns an empty list
-    if the file does not exist.
-    """
-    pantry_path = path or os.getenv("PANTRY_PATH") or os.path.join(
-        os.path.dirname(__file__), "pantry.txt"
-    )
-    if not os.path.exists(pantry_path):
-        return []
-
-    with open(pantry_path, encoding="utf-8") as f:
-        lines = [line.strip() for line in f]
-    return [line for line in lines if line and not line.startswith("#")]
-
-
-def load_pantry(path: str | None = None) -> set[str]:
-    """Load the list of ingredients kept at home.
-
-    Returns a set of normalized names (no diacritics, lowercase).
-    """
-    return {_normalize(item) for item in read_pantry_lines(path)}
-
-
-def is_pantry_item(name: str, pantry: set[str]) -> bool:
-    """Check whether an ingredient matches something in the home pantry.
-
-    Uses partial matching: "extra panensky olivovy olej" matches
-    "olivovy olej" from the pantry and vice versa.
-    """
-    norm = _normalize(name)
-    for item in pantry:
-        if item in norm or norm in item:
-            return True
-    return False
 
 
 # Running this file directly checks that the configuration loads

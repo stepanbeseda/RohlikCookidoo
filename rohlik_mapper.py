@@ -18,8 +18,8 @@ import re
 from dataclasses import dataclass
 
 from config import QualityPreference
-from ingredient_parser import ParsedIngredient
 from mcp_clients import MCPConnectionManager
+from rohlik_cookidoo.ingredients import ParsedIngredient
 
 
 @dataclass
@@ -38,10 +38,13 @@ class RohlikProduct:
     in_stock: bool = True
 
 
+# Whole words only, so that "Symbio" or "Biokoláč" do not count
+_BIO_WORD = re.compile(r"\b(?:bio|organic|eko)\b", re.IGNORECASE)
+
+
 def _is_bio_product(name: str, brand: str) -> bool:
     """Check whether a product is organic (bio)."""
-    text = f"{name} {brand}".lower()
-    return any(kw in text for kw in ["bio ", "bio-", "organic", "eko "])
+    return bool(_BIO_WORD.search(f"{name} {brand}"))
 
 
 # Regex for one product block in the search_products response:
@@ -195,7 +198,7 @@ def select_product_interactive(
 
         print(f"    {i}. {p.name} ({p.amount}){tag_str} -- {p.price} Kc{discount_str}")
 
-    print(f"    0. Preskocit")
+    print("    0. Preskocit")
 
     while True:
         choice = input(f"  Vyber produkt (0-{len(shown)}) [1]: ").strip() or "1"

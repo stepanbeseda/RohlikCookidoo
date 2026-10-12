@@ -23,10 +23,15 @@ cd RohlikCookidoo
 
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 ```
 
-Cookidoo MCP server je součástí repa (`cookidoo_server.py`), nic dalšího se neklonuje. Stojí na neoficiální knihovně [cookidoo-api](https://github.com/miaucl/cookidoo-api) a z Cookidoo jen čte.
+S nástrojem [uv](https://docs.astral.sh/uv/) stačí `uv sync`; nainstaluje přesně verze ze souboru `uv.lock` do složky `.venv`.
+
+Repo obsahuje dva vlastní MCP servery, nic dalšího se neklonuje:
+
+- `cookidoo_server.py` čte týdenní plán a recepty z Cookidoo. Stojí na neoficiální knihovně [cookidoo-api](https://github.com/miaucl/cookidoo-api) a nic nezapisuje.
+- `kitchen_server.py` sčítá ingredience z více receptů, porovnává je se spíží a počítá počet balení. Nepotřebuje žádné heslo ani síť.
 
 ### Spíž
 
@@ -50,7 +55,13 @@ Do sekce `"mcpServers"` v `claude_desktop_config.json` přidej:
   "args": ["run", "/absolutni/cesta/k/projektu/cookidoo_server.py"],
   "env": {
     "COOKIDOO_EMAIL": "tvuj@email.com",
-    "COOKIDOO_PASSWORD": "tvoje_heslo",
+    "COOKIDOO_PASSWORD": "tvoje_heslo"
+  }
+},
+"kuchyne": {
+  "command": "/absolutni/cesta/k/projektu/venv/bin/fastmcp",
+  "args": ["run", "/absolutni/cesta/k/projektu/kitchen_server.py"],
+  "env": {
     "PANTRY_PATH": "/absolutni/cesta/k/projektu/pantry.txt"
   }
 },
@@ -136,7 +147,17 @@ slunečnicový olej
 hladká mouka
 ```
 
-Piš položky konkrétně. Porovnání je částečné a bez diakritiky, takže obecná položka `olej` vyřadí z nákupu i sezamový olej a `máslo` vyřadí i arašídové máslo.
+Porovnání nezávisí na pádu ani na diakritice („másla“ z receptu odpovídá položce „máslo“) a má tři výsledky:
+
+| Recept | Spíž | Výsledek |
+|---|---|---|
+| másla | máslo | doma, nekupuje se |
+| sezamový olej | olej | zkontroluj doma: ve spíži je něco podobného, Claude rozhodne a upozorní tě |
+| vepřové plece | | kupuje se |
+
+Spíž nezná množství. Když recepty chtějí 300 g másla, bere se máslo jako „doma“; Claude na větší množství upozorní.
+
+Spíž můžeš měnit i v chatu („rýži mám vždycky doma“, „došla mi mouka“).
 
 ---
 
@@ -152,17 +173,17 @@ python main.py --discover   # vypíše dostupné MCP nástroje
 python main.py --debug      # při chybě vypíše celý traceback
 ```
 
-CLI spouští stejný `cookidoo_server.py` jako Claude Desktop. Cestu ke spíži lze změnit proměnnou `PANTRY_PATH`.
+CLI spouští stejný `cookidoo_server.py` jako Claude Desktop a používá stejné jádro pro sčítání a spíž. Suroviny ve stavu „zkontroluj doma“ vypíše a nabídne k nákupu. Cestu ke spíži lze změnit proměnnou `PANTRY_PATH`.
 
 ---
 
 ## Známá omezení
 
-- **Tvary slov.** Cookidoo vrací ingredience ve 2. pádě („másla“, „soli“). CLI je neumí převést na základní tvar, takže položku spíže „máslo“ s nimi nespáruje a na Rohlíku hledá „másla“. V Claude Desktop to řeší model.
-- **Vlastní recepty.** Recepty, které sis v Cookidoo vytvořil sám, mají ingredience jako volný text bez odděleného množství. CLI je nepodporuje.
+- **Tvary slov.** Cookidoo vrací ingredience ve 2. pádě („másla“, „soli“). Sčítání a spíž si s tím poradí zjednodušeným odřezáváním koncovek, ne skutečným slovníkem, takže u neobvyklých slov se dvě podoby téže suroviny nemusí spojit. CLI navíc na Rohlíku hledá tvar z receptu („másla“); v Claude Desktop ho model převede.
+- **Podobné suroviny se nesčítají.** „Cibule“ a „žlutá cibule“ jsou dvě položky. Stejně tak 2 lžíce oleje a 100 g oleje.
+- **Vlastní recepty.** Recepty, které sis v Cookidoo vytvořil sám, mají ingredience jako volný text. Server je vrací, ale není to vyzkoušené; CLI je nepodporuje.
 - **Opakované spuštění.** Před přidáním se nekontroluje obsah košíku. Druhé `/tyden` přidá všechno znovu.
-- **Počet balení.** Odhaduje se jen tam, kde recept i produkt používají hmotnost nebo objem. Cookidoo uvádí tekutiny v gramech, Rohlík v litrech, v takovém případě se přidá jedno balení.
-- **Zápis množství.** Parser v CLI nezvládne tvary jako `200g` bez mezery, rozsah `1-2`, `½` nebo „1 vrchovatá čajová lžička“.
+- **Počet balení.** Gramy proti litrům se počítají jako 1 g = 1 ml, což sedí pro vodu a mléko, méně pro olej nebo med. Kusy proti kilogramům (3 cibule a síťka 1 kg) spočítat nejde a vychází jedno balení; nástroj to v poznámce uvede.
 - **Zachraň jídlo.** CLI kontroluje jen první stránku slev a označení bere podle formátu slevy, ne podle skutečné kategorie Zachraň jídlo.
 - **Neoficiální API.** Cookidoo nemá veřejné API. Knihovna `cookidoo-api` i Rohlik MCP balíček používají neveřejná rozhraní, která se mohou kdykoli změnit.
 
@@ -176,15 +197,19 @@ CLI spouští stejný `cookidoo_server.py` jako Claude Desktop. Cestu ke spíži
 
 - Servery se v Claude Desktop nezobrazují: zkontroluj logy v `~/Library/Logs/Claude/` a syntaxi JSON v konfiguraci.
 - Ověř, že funguje `venv/bin/fastmcp --version` a `npx --version`.
+- Chybí nástroj `aggregate_ingredients_for_shopping`: v konfiguraci není server `kuchyne`.
 - Cookidoo hlásí „login failed“: zkontroluj `COOKIDOO_EMAIL` a `COOKIDOO_PASSWORD`. Přihlášení si ověříš nástrojem `connect_to_cookidoo`.
 - Týdenní plán je prázdný: recepty musí být v kalendáři na webu cookidoo.cz v daném týdnu (pondělí až neděle).
 
 ## Vývoj
 
 ```bash
-pip install pytest
-python -m pytest
+pip install -e ".[dev]"
+ruff check .
+pytest
 ```
+
+Jádro je v balíčku `rohlik_cookidoo/` (`ingredients.py`, `pantry.py`, `packages.py`, `text.py`) a nemá závislost na síti. Testy a lint běží na GitHubu při každém pull requestu.
 
 ## Licence
 

@@ -3,14 +3,13 @@
 from datetime import date
 from types import SimpleNamespace
 
-from config import read_pantry_lines
-from cookidoo_server import (
+from main import planned_recipe_ids
+from rohlik_cookidoo.cookidoo_server import (
     custom_recipe_to_dict,
     recipe_to_dict,
     week_start,
     week_to_dict,
 )
-from main import planned_recipe_ids
 
 
 def _day(day_id, title, recipes, custom_ids=()):
@@ -95,19 +94,3 @@ class TestRecipeToDict:
         assert custom_recipe_to_dict(recipe)["ingredients"] == [
             {"name": "200 g mouky", "quantity": ""}
         ]
-
-
-class TestReadPantryLines:
-    def test_skips_comments_and_blank_lines(self, tmp_path):
-        pantry = tmp_path / "pantry.txt"
-        pantry.write_text("# doma\nsůl\n\n  hladká mouka  \n", encoding="utf-8")
-        assert read_pantry_lines(str(pantry)) == ["sůl", "hladká mouka"]
-
-    def test_missing_file(self, tmp_path):
-        assert read_pantry_lines(str(tmp_path / "none.txt")) == []
-
-    def test_path_from_environment(self, tmp_path, monkeypatch):
-        pantry = tmp_path / "p.txt"
-        pantry.write_text("pepř\n", encoding="utf-8")
-        monkeypatch.setenv("PANTRY_PATH", str(pantry))
-        assert read_pantry_lines() == ["pepř"]
