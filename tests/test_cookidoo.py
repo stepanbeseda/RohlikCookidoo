@@ -1,9 +1,9 @@
-"""Tests for the pure helpers of the Cookidoo MCP server (no network)."""
+"""Tests for the pure helpers of the Cookidoo client (no network)."""
 
 from datetime import date
 from types import SimpleNamespace
 
-from rohlik_cookidoo.cookidoo_server import (
+from rohlik_cookidoo.cookidoo import (
     custom_recipe_to_dict,
     recipe_to_dict,
     week_start,

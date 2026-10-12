@@ -4,6 +4,8 @@ description: Shop on Rohlik.cz for the recipes planned in the Cookidoo calendar 
 argument-hint: "[příští]"
 ---
 
-Read `${CLAUDE_PLUGIN_ROOT}/shared/shopping-guide.md` and follow it in **Week** mode.
+Shop for the weekly Cookidoo meal plan: call `prepare_shopping` on the kitchen MCP server (`week_offset: 1` if the user said next week, "příští") and follow that server's instructions from there.
+
+If you have not seen the kitchen server's instructions in this conversation, call its `get_shopping_guide` tool first. Talk to the user in Czech.
 
 What the user added after the command: $ARGUMENTS

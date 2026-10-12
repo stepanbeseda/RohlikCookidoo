@@ -1,6 +1,6 @@
 {
   "name": "rohlik-cookidoo",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Turns a Cookidoo (Thermomix) meal plan or recipe into a Rohlik.cz shopping cart: sums ingredients, skips what is in the home pantry and fills the cart after confirmation.",
   "author": {
     "name": "stepanbeseda"
@@ -36,23 +36,6 @@
     }
   },
   "mcpServers": {
-    "cookidoo": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--frozen",
-        "--project",
-        "${CLAUDE_PLUGIN_ROOT}",
-        "python",
-        "${CLAUDE_PLUGIN_ROOT}/cookidoo_server.py"
-      ],
-      "env": {
-        "COOKIDOO_EMAIL": "${user_config.cookidoo_email}",
-        "COOKIDOO_PASSWORD": "${user_config.cookidoo_password}",
-        "COOKIDOO_COUNTRY": "${user_config.cookidoo_country}",
-        "COOKIDOO_LANGUAGE": "${user_config.cookidoo_language}"
-      }
-    },
     "kitchen": {
       "command": "uv",
       "args": [
@@ -61,10 +44,14 @@
         "--project",
         "${CLAUDE_PLUGIN_ROOT}",
         "python",
-        "${CLAUDE_PLUGIN_ROOT}/kitchen_server.py"
+        "${CLAUDE_PLUGIN_ROOT}/server.py"
       ],
       "env": {
-        "PANTRY_PATH": "${CLAUDE_PLUGIN_DATA}/pantry.txt"
+        "COOKIDOO_EMAIL": "${user_config.cookidoo_email}",
+        "COOKIDOO_PASSWORD": "${user_config.cookidoo_password}",
+        "COOKIDOO_COUNTRY": "${user_config.cookidoo_country}",
+        "COOKIDOO_LANGUAGE": "${user_config.cookidoo_language}",
+        "DATA_DIR": "${CLAUDE_PLUGIN_DATA}"
       }
     },
     "rohlik": {

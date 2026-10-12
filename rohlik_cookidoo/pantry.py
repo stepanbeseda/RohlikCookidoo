@@ -3,8 +3,10 @@
 The pantry is a text file with one item per line; blank lines and lines
 starting with # are ignored. A line starting with "?" marks something that is
 usually at home but runs out ("? máslo"): it is not skipped silently, the user
-is asked first. Its location is PANTRY_PATH, or pantry.txt in the repository
-root.
+is asked first.
+
+The file is PANTRY_PATH, or pantry.txt in DATA_DIR, or pantry.txt in the
+repository root. The memory files are kept in the same directory.
 """
 
 import os
@@ -21,9 +23,10 @@ _ASK_MARKER = "?"
 
 def pantry_path(path: str | None = None) -> Path:
     """Return the pantry file location."""
-    return Path(
-        path or os.getenv("PANTRY_PATH") or Path(__file__).parent.parent / "pantry.txt"
-    )
+    if path or os.getenv("PANTRY_PATH"):
+        return Path(path or os.environ["PANTRY_PATH"])
+    data_dir = os.getenv("DATA_DIR")
+    return Path(data_dir) / "pantry.txt" if data_dir else Path(__file__).parent.parent / "pantry.txt"
 
 
 def read_pantry_lines(path: str | None = None) -> list[str]:

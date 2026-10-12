@@ -1,11 +1,7 @@
-"""Tests for the kitchen MCP server logic (no MCP transport involved)."""
+"""Tests for building the shopping list."""
 
 from rohlik_cookidoo import memory
-from rohlik_cookidoo.kitchen_server import (
-    build_shopping_list,
-    pantry_overview,
-    plan_package_counts,
-)
+from rohlik_cookidoo.shopping import build_shopping_list, pantry_overview
 
 RECIPES = [
     {
@@ -80,16 +76,5 @@ def test_usual_product_is_attached_in_any_case_form():
 
 def test_pantry_overview():
     assert pantry_overview(["sůl", "? máslo", "pepř"]) == {
-        "items": ["sůl", "pepř"], "ask_first": ["máslo"],
+        "always_at_home": ["sůl", "pepř"], "ask_first": ["máslo"],
     }
-
-
-def test_plan_package_counts():
-    result = plan_package_counts([
-        {"name": "cibule", "quantity": 300, "unit": "g", "package_amount": "1 kg"},
-        {"name": "mléko", "quantity": 1500, "unit": "g", "package_amount": "1 l"},
-        {"name": "sůl", "package_amount": "1 kg"},
-    ])
-    assert [(r["name"], r["packages"], r["exact"]) for r in result] == [
-        ("cibule", 1, True), ("mléko", 2, False), ("sůl", 1, False),
-    ]

@@ -1,6 +1,6 @@
 """Tests for working out cart additions."""
 
-from rohlik_cookidoo.cart import plan_cart_additions
+from rohlik_cookidoo.cart import plan_cart_additions, plan_purchase
 
 ITEMS = [
     {"name": "vepřová plec", "product_id": 1408929, "packages": 1, "price": 211.29},
@@ -57,3 +57,57 @@ def test_missing_price_counts_as_zero():
     plan = plan_cart_additions([{"name": "x", "product_id": 1, "packages": 2}])
     assert plan["to_add"] == [{"product_id": 1, "quantity": 2}]
     assert plan["added_total"] == 0
+
+
+class TestPlanPurchase:
+    def test_packages_leftovers_and_cart_in_one_step(self):
+        plan = plan_purchase(
+            [
+                {"name": "vepřová plec", "productId": 1408929, "price": 222.49,
+                 "package_amount": "cca 0,89 kg", "quantity": 700, "unit": "g"},
+                {"name": "cibule", "productId": 1349783, "price": 2.53,
+                 "package_amount": "cca 120 g", "quantity": 200, "unit": "g"},
+            ],
+            cart=[{"productId": 1408929, "quantity": 1}],
+            cart_total=222.49,
+        )
+        meat, onion = plan["lines"]
+        assert (meat["packages"], meat["add"], meat["leftover"]) == (1, 0, "190 g")
+        assert (onion["packages"], onion["add"], onion["leftover"]) == (2, 2, "40 g")
+        assert plan["to_add"] == [{"product_id": 1349783, "quantity": 2}]
+        assert plan["cart_total_after"] == 227.55
+
+    def test_ingredients_sharing_a_product_are_summed_before_rounding(self):
+        items = [
+            {"name": "cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
+             "quantity": 200, "unit": "g"},
+            {"name": "žlutá cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
+             "quantity": 0.3, "unit": "kg"},
+        ]
+        line = plan_purchase(items, minimum_order=0)["lines"][0]
+        assert (line["name"], line["packages"], line["leftover"]) == (
+            "cibule, žlutá cibule", 1, "0 g",
+        )
+
+    def test_explicit_packages_override_the_calculation(self):
+        items = [{"name": "cibule", "product_id": 1, "price": 19.9, "package_amount": "1 kg",
+                  "quantity": 3, "unit": None, "packages": 1}]
+        line = plan_purchase(items, minimum_order=0)["lines"][0]
+        assert (line["packages"], line["exact"]) == (1, True)
+
+    def test_uncomparable_amount_is_flagged(self):
+        items = [{"name": "cibule", "product_id": 1, "price": 19.9, "package_amount": "1 kg",
+                  "quantity": 3, "unit": None}]
+        line = plan_purchase(items, minimum_order=0)["lines"][0]
+        assert (line["packages"], line["exact"]) == (1, False)
+        assert "cannot compare" in line["note"]
+
+    def test_shared_product_with_mixed_units_is_counted_separately(self):
+        items = [
+            {"name": "olej", "product_id": 1, "price": 50, "package_amount": "1 l",
+             "quantity": 100, "unit": "ml"},
+            {"name": "oleje", "product_id": 1, "price": 50, "package_amount": "1 l",
+             "quantity": 2, "unit": "lžíce"},
+        ]
+        line = plan_purchase(items, minimum_order=0)["lines"][0]
+        assert (line["packages"], line["exact"]) == (2, False)
