@@ -46,12 +46,12 @@ chapter and a table row; existing chapters are never rewritten, only the
 
 | NN | Name | Depends on | Status |
 |---|---|---|---|
-| 01 | Purchase plan in one pass | — | planned |
-| 02 | Household module | — | planned |
-| 03 | Shopping list module | 02 | planned |
-| 04 | One ingredient identity | 02 | planned |
-| 05 | Amount module | 01 | planned |
-| 06 | One ingredient line across the shopping tools | 01, 03 | planned |
+| 01 | Purchase plan in one pass | — | merged (#13) |
+| 02 | Household module | — | merged (#14) |
+| 03 | Shopping list module | 02 | merged (#15) |
+| 04 | One ingredient identity | 02 | merged (#17) |
+| 05 | Amount module | 01 | merged (#16) |
+| 06 | One ingredient line across the shopping tools | 01, 03 | merged (#18) |
 
 Merge order for a batch: 01 and 02 first (independent), then 03, 04 and 05,
 then 06.
@@ -100,6 +100,11 @@ names (PR 06). The `plan_purchase` tool keeps its input and output fields.
 **Requested:** 2026-10-15, from the architecture review of the same day
 (candidate A); written into the plan directly, without `/mao` question
 rounds.
+
+**Delivered:** GitHub #13, merge `1d3e2c0`. `scripts/check.sh` at the PR head: 219 passed. Review: 1 round (approved, 8 non-blocking); CI green on 3.12/3.13/3.14 and docker.
+- `packages.py` was merged into `cart.py` (its parsing is private there); the "Done when" bullet about `packages.py` is met by the file being gone.
+- The package size is the first item's text, as on `main`, not the first non-empty size the spec described: the spec rule could raise a count. When the first item has no size and a counted part needs one, the line is `exact: false` with `package size not recognised`.
+- The price is the first price given: a first item without `price` followed by one with a price is now priced at the later price (`main` priced it 0).
 
 ### PR 02 — Household module
 
@@ -150,6 +155,10 @@ locations do not change.
 (candidate C); written into the plan directly, without `/mao` question
 rounds.
 
+**Delivered:** GitHub #14, merge `0cb3cd8`. `scripts/check.sh` at the PR head: 243 passed. Review: 2 rounds (round 1 approved with 5 non-blocking; round 2 delta review after the rebase onto PR 01 and fixes 1-3); CI green on 3.12/3.13/3.14 and docker.
+- No deviation from "Done when". By design: a pantry call with no net effect writes nothing; a `\r\n` pantry file is rewritten with `\n` when it changes; a non-UTF-8 `products.json` / `preferences.json` is treated as empty with a warning; the temp file is `.<name>.<hex>.tmp`.
+- Added after review round 1: data files that are symlinks stay links (`_write_atomic` resolves the path first), a test for `pantry_setup_needed` with an ask-first-only pantry, `.*.tmp` in `.gitignore`.
+
 ### PR 03 — Shopping list module
 
 The first shopping step moves out of `rohlik_cookidoo/server.py`.
@@ -194,6 +203,10 @@ Not in this PR: changes to the `prepare_shopping` output fields (PR 06).
 (candidate B); written into the plan directly, without `/mao` question
 rounds.
 
+**Delivered:** GitHub #15, merge `b7184d5`. `scripts/check.sh` at the PR head: 266 passed. Review: 1 round (approved, 3 non-blocking); CI green on 3.12/3.13/3.14 and docker.
+- 266 tests instead of the spec's 264: three asserts were split into separate tests (an addition).
+- Not every tool error goes through `_tool_errors()`: `get_recipe_details` / `get_planned_recipes` still let non-Cookidoo, non-transport errors through (spec decisions 6 and 7).
+
 ### PR 04 — One ingredient identity
 
 "Is this the same ingredient?" is answered in three places with three
@@ -231,6 +244,11 @@ Not in this PR: changing the stemming rules themselves.
 (candidate E); written into the plan directly, without `/mao` question
 rounds.
 
+**Delivered:** GitHub #17, merge `217d23d`. `scripts/check.sh` at the PR head: 374 passed (after the rebase onto PR 05). Review: 1 round (approved, 3 non-blocking); CI green on 3.12/3.13/3.14 and docker.
+- The chapter's `memory.py` / `match_pantry` / `_product_key` are the private `_match` / `_product_key` in `household.py` since PR 02; `_product_key` is removed.
+- Rebase onto PR 05 resolved one conflict in `ingredients.py` (imports `Identity, clean_name, identity` from `text`; `normalize` and `stem` are no longer used there).
+- Known consequence (spec-prescribed): a pantry line with an empty identity can be added but no longer removed through `update_pantry(remove=...)`.
+
 ### PR 05 — Amount module
 
 One Amount module holds the unit and number model that is split today
@@ -266,6 +284,12 @@ millilitres.
 **Requested:** 2026-10-15, from the architecture review of the same day
 (candidate F); written into the plan directly, without `/mao` question
 rounds.
+
+**Delivered:** GitHub #16, merge `e7aa107`. `scripts/check.sh` at the PR head: 330 passed. Review: 2 rounds (round 1 approved with 4 non-blocking; round 2 delta review after the rebase onto PR 03 and the `1/0` guard); CI green on 3.12/3.13/3.14 and docker.
+- `packages.py` no longer existed (PR 01): the package-size parsing lives in `amount.py` now, taken over from `cart.py`.
+- Thousands-dot rule (decision 11): "1.250 kg" reads as 1250 kg, also for package sizes; Rohlik writes decimal commas, so the risk is a shop text with an English decimal point and exactly three decimals.
+- A zero-denominator guard (`1/0` fractions) was added after review round 1; it is not in the spec.
+- A zero `quantity` next to an amount-less item buys 0 packages (inexact, with a note); spec decision.
 
 ### PR 06 — One ingredient line across the shopping tools
 
@@ -312,6 +336,12 @@ new instructions; deploying stays with the user.
 (candidate D); written into the plan directly, without `/mao` question
 rounds.
 
+**Delivered:** GitHub #18, merge `53a5346`. `scripts/check.sh` at the PR head: 384 passed (3.12, 3.13, 3.14). Review: 1 round (approved, 6 non-blocking); CI green on 3.12/3.13/3.14 and docker.
+- `to_add` uses `productId` (Rohlik's `add_items_to_cart` requires it); this output change is not named in the chapter.
+- `README.md` and `skills/*/SKILL.md` are unchanged: they name no tool field, so there is no old shape to correct.
+- Old input names are still accepted for one release (`name` on plan items, a single `ingredient` on bought products, `_listed`) and absent from the tool schema.
+- Not verifiable offline: a live model on claude.ai following the new `INSTRUCTIONS` against the real Rohlik connector, after the 0.8.0 release and redeploy.
+
 ## 5. Open items
 
 - After PR 06: a release commit bumping the version in `pyproject.toml`,
@@ -320,3 +350,27 @@ rounds.
 - The main checkout's `.git/index` is owned by root
   (`sudo chown ubuntu:ubuntu .git/index`); until then MAO runs work in
   worktrees.
+- Follow-up after 0.8.0: drop PR 06's old input aliases (`name` on plan items,
+  `ingredient` on bought products, `_listed`) from `server.py` in the release
+  after 0.8.0. Source: `PR-06-review-1.md` (Other 5), `PR-06-pr-body.md`.
+- PR 06: an empty `product_name` on a plan item overwrites a remembered name
+  in `record_purchase`; keep the stored name when the new one is blank, or name
+  Rohlik's search-result key in the INSTRUCTIONS. Source: `PR-06-review-1.md`
+  (Other 1, 2).
+- PR 03: `_login` in `rohlik_cookidoo/cookidoo.py` closes its `ClientSession`
+  only on the mapped errors; any other exception from `api.login()` leaks the
+  session (one line: `except BaseException: await session.close(); raise`).
+  Source: `PR-03-review-1.md` (Other 1).
+- PR 04: a pantry line with an empty identity ("(volitelně)", ", nic") can be
+  added but not removed through `update_pantry(remove=...)`; compare the
+  stripped text exactly in `drop`, or let `add` skip empty-identity items.
+  Source: `PR-04-review-1.md` (Other 1).
+- PR 05: "1.250 kg" reads as 1250 kg (thousands-dot rule), which under-buys
+  silently if Rohlik ever writes an English decimal point; check a real
+  `textualAmount` sample. A zero `quantity` next to an amount-less item buys
+  0 packages; buy at least 1 package when some items lack an amount. Source:
+  `PR-05-review-1.md` (Other 2, 3), `PR-05-review-2.md` (Other 2).
+- PR 02 (info): importing `rohlik_cookidoo.server` still opens `.env` through
+  FastMCP's own settings (`FASTMCP_` keys); `COOKIDOO_EMAIL` from that file
+  does not reach `os.environ`. Source: `PR-02-review-2.md`
+  (round-1 finding 4 in `PR-02-review-1.md`).
