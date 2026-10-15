@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 from datetime import date, timedelta
 from typing import Any
 
-from aiohttp import ClientSession, CookieJar
+from aiohttp import ClientError, ClientSession, CookieJar
 from cookidoo_api import Cookidoo, CookidooConfig
 from cookidoo_api.exceptions import CookidooAuthException, CookidooException
 from cookidoo_api.helpers import get_localization_options
@@ -25,7 +25,12 @@ _CATALOGUE_RECIPE_ID = re.compile(r"r\d+")
 
 
 class CookidooError(Exception):
-    """Cookidoo is not configured or a request to it failed."""
+    """Cookidoo is not configured, cannot be reached, or a request to it failed."""
+
+
+def _reason(error: Exception) -> str:
+    """The error's text, or its type when it has none (a bare TimeoutError)."""
+    return str(error) or type(error).__name__
 
 
 def week_start(today: date, week_offset: int = 0) -> date:
@@ -113,9 +118,9 @@ class CookidooClient:
         )
         try:
             await api.login()
-        except CookidooException as e:
+        except (CookidooException, ClientError, TimeoutError) as e:
             await session.close()
-            raise CookidooError(f"Cookidoo login failed: {e}") from e
+            raise CookidooError(f"Cookidoo login failed: {_reason(e)}") from e
 
         previous = self._session
         self._session, self._api = session, api
@@ -141,8 +146,8 @@ class CookidooClient:
                 return await operation(api)
             except CookidooAuthException:
                 return await operation(await self._signed_in(stale=api))
-        except CookidooException as e:
-            raise CookidooError(f"Cookidoo request failed: {e}") from e
+        except (CookidooException, ClientError, TimeoutError) as e:
+            raise CookidooError(f"Cookidoo request failed: {_reason(e)}") from e
 
     async def week(self, week_offset: int = 0) -> dict:
         """Return the recipes planned in the calendar for one week."""
