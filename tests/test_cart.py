@@ -2,7 +2,7 @@
 
 import pytest
 
-from rohlik_cookidoo.cart import plan_purchase
+from rohlik_cookidoo.cart import PurchasePlanError, plan_purchase
 
 ITEMS = [
     {"name": "vepřová plec", "product_id": 1408929, "packages": 1, "price": 211.29,
@@ -191,3 +191,171 @@ def test_shared_product_with_mixed_units_is_counted_separately():
     assert (line["packages"], line["exact"], line["note"]) == (
         2, False, "amounts in different units were counted separately",
     )
+
+
+def test_conflicting_package_amount_is_flagged():
+    items = [
+        {"name": "cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
+         "quantity": 300, "unit": "g"},
+        {"name": "žlutá cibule", "product_id": 1, "price": 10, "package_amount": "1 kg",
+         "quantity": 300, "unit": "g"},
+    ]
+    line = plan_purchase(items, minimum_order=0)["lines"][0]
+    assert (line["packages"], line["exact"], line["leftover"]) == (2, False, "400 g")
+    assert line["note"] == (
+        'items for this product give different package_amount ("500 g", "1 kg");'
+        ' counted with "500 g"'
+    )
+
+
+def test_conflicting_price_is_flagged():
+    items = [
+        {"name": "cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
+         "quantity": 200, "unit": "g"},
+        {"name": "žlutá cibule", "product_id": 1, "price": 12.5, "package_amount": "500 g",
+         "quantity": 200, "unit": "g"},
+    ]
+    plan = plan_purchase(items, minimum_order=0)
+    line = plan["lines"][0]
+    assert (line["packages"], line["exact"], line["cost"]) == (1, False, 10)
+    assert plan["added_total"] == 10
+    assert line["note"] == "items for this product give different price (10, 12.5); priced at 10"
+
+
+def test_same_package_size_written_differently_is_no_conflict():
+    items = [
+        {"name": "a", "product_id": 1, "price": 10, "package_amount": "1 kg",
+         "quantity": 300, "unit": "g"},
+        {"name": "b", "product_id": 1, "price": 10.0, "package_amount": "1000 g",
+         "quantity": 300, "unit": "g"},
+        {"name": "c", "product_id": 1, "package_amount": "", "quantity": 100, "unit": "g"},
+    ]
+    line = plan_purchase(items, minimum_order=0)["lines"][0]
+    assert counted(line) == (1, True, "", "300 g")
+    assert line["cost"] == 10
+
+
+def test_conflict_and_estimate_notes_are_joined():
+    items = [
+        {"name": "mléko", "product_id": 1, "price": 20, "package_amount": "1 l",
+         "quantity": 500, "unit": "g"},
+        {"name": "mléka", "product_id": 1, "price": 25, "package_amount": "1 l",
+         "quantity": 200, "unit": "g"},
+    ]
+    line = plan_purchase(items, minimum_order=0)["lines"][0]
+    assert line["exact"] is False
+    assert line["note"] == (
+        "items for this product give different price (20, 25); priced at 20;"
+        " assumed 1 g = 1 ml"
+    )
+
+
+def test_zero_packages_buys_nothing():
+    item = {"name": "cibule", "product_id": 1, "price": 10, "package_amount": "1 kg",
+            "quantity": 300, "unit": "g", "packages": 0}
+    plan = plan_purchase(
+        [item], cart=[{"product_id": 1, "quantity": 2}], cart_total=20, minimum_order=0
+    )
+    line = plan["lines"][0]
+    assert (line["packages"], line["already_in_cart"], line["add"], line["cost"]) == (0, 0, 0, 0)
+    assert (line["exact"], line["leftover"]) == (True, None)
+    assert plan["to_add"] == []
+    assert plan["added_total"] == 0
+    assert plan["cart_total_after"] == 20
+
+
+def test_zero_packages_without_an_amount():
+    assert counted(plan_one("1 kg", None, None, packages=0)) == (0, True, "", None)
+
+
+def test_explicit_packages_keep_the_counted_part_inexact():
+    items = [
+        {"name": "sůl", "product_id": 1, "price": 10, "package_amount": "1 kg", "packages": 1},
+        {"name": "soli", "product_id": 1, "price": 10, "package_amount": "1 kg",
+         "quantity": None, "unit": None},
+    ]
+    line = plan_purchase(items, minimum_order=0)["lines"][0]
+    assert counted(line) == (2, False, "recipe gives no amount", None)
+
+
+def test_counted_items_next_to_explicit_packages_are_summed():
+    items = [
+        {"name": "a", "product_id": 1, "price": 10, "package_amount": "500 g", "packages": 1},
+        {"name": "b", "product_id": 1, "price": 10, "package_amount": "500 g",
+         "quantity": 200, "unit": "g"},
+        {"name": "c", "product_id": 1, "price": 10, "package_amount": "500 g",
+         "quantity": 200, "unit": "g"},
+    ]
+    line = plan_purchase(items, minimum_order=0)["lines"][0]
+    assert counted(line) == (2, True, "", None)
+
+
+def test_item_without_product_id_is_named():
+    items = [
+        {"name": "máslo", "product_id": 2, "package_amount": "250 g"},
+        {"name": "cibule", "package_amount": "1 kg", "quantity": 1, "unit": "kg"},
+    ]
+    with pytest.raises(PurchasePlanError) as error:
+        plan_purchase(items)
+    assert str(error.value) == 'item 2 ("cibule") has no product_id or productId'
+
+
+@pytest.mark.parametrize("ids", [{"product_id": None}, {"productId": " "}])
+def test_blank_product_id_is_missing(ids):
+    with pytest.raises(PurchasePlanError, match=r'^item 1 \("x"\)'):
+        plan_purchase([{"name": "x", "package_amount": "", **ids}])
+
+
+def test_zero_is_a_valid_product_id():
+    plan = plan_purchase([{"name": "x", "product_id": 0, "packages": 1, "package_amount": ""}])
+    assert plan["to_add"] == [{"product_id": 0, "quantity": 1}]
+
+
+def test_cart_line_without_product_id_is_named():
+    with pytest.raises(PurchasePlanError) as error:
+        plan_purchase(ITEMS, cart=[{"quantity": 1}])
+    assert str(error.value) == "cart line 1 has no product_id or productId"
+
+
+def test_negative_packages_are_refused():
+    with pytest.raises(PurchasePlanError) as error:
+        plan_one("1 kg", 1, "kg", packages=-1)
+    assert str(error.value) == 'item 1 ("x") has packages -1; use 0 or more'
+
+
+@pytest.mark.parametrize("line", [{"product_id": 1349783, "quantity": None},
+                                  {"product_id": 1349783}])
+def test_cart_line_without_quantity_counts_as_one(line):
+    plan = plan_purchase(ITEMS, cart=[line], minimum_order=0)
+    assert plan["to_add"][1] == {"product_id": 1349783, "quantity": 2}
+
+
+def test_item_without_a_package_size_keeps_the_count_an_estimate():
+    # The first item decides the package size, as before: the count stays a flagged
+    # estimate instead of silently growing once a later item names the size.
+    items = [
+        {"name": "a", "product_id": 1, "price": 10, "package_amount": "", "packages": 1},
+        {"name": "b", "product_id": 1, "price": 10, "package_amount": "1 kg",
+         "quantity": 3, "unit": "kg"},
+    ]
+    line = plan_purchase(items, minimum_order=0)["lines"][0]
+    assert counted(line) == (2, False, "package size not recognised", None)
+
+
+def test_price_comes_from_the_first_item_that_has_one():
+    items = [
+        {"name": "a", "product_id": 1, "package_amount": "1 kg", "packages": 1},
+        {"name": "b", "product_id": 1, "price": 10, "package_amount": "1 kg", "packages": 1},
+    ]
+    plan = plan_purchase(items, minimum_order=0)
+    assert (plan["lines"][0]["cost"], plan["lines"][0]["exact"]) == (20, True)
+
+
+def test_price_zero_is_a_price():
+    items = [
+        {"name": "a", "product_id": 1, "price": 0, "package_amount": "1 kg", "packages": 1},
+        {"name": "b", "product_id": 1, "price": 10, "package_amount": "1 kg", "packages": 1},
+    ]
+    line = plan_purchase(items, minimum_order=0)["lines"][0]
+    assert (line["cost"], line["exact"]) == (0, False)
+    assert line["note"] == "items for this product give different price (0, 10); priced at 0"

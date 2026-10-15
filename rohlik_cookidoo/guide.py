@@ -48,7 +48,9 @@ places the order themselves.
    returns package counts, leftovers, what is still missing from the cart and
    the totals. Do not calculate any of this yourself. When a line has
    `exact: false`, read its `note`, use your judgement (three onions against a
-   1 kg net is one package) and call the tool again with `packages` set.
+   1 kg net is one package) and call the tool again with `packages` set
+   (`packages: 0` when the user does not want it). Ingredients that share one
+   product need the same price and package size.
 5. Show one table: ingredient, product, package size, packages, price, and the
    totals. Mark what is already in the cart, list what you could not find,
    say how much is missing to the minimum order if any, and mention leftovers

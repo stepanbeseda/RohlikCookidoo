@@ -40,7 +40,7 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
 from rohlik_cookidoo import memory
-from rohlik_cookidoo.cart import DEFAULT_MINIMUM_ORDER
+from rohlik_cookidoo.cart import DEFAULT_MINIMUM_ORDER, PurchasePlanError
 from rohlik_cookidoo.cart import plan_purchase as plan_purchase_core
 from rohlik_cookidoo.cookidoo import CookidooClient, CookidooError
 from rohlik_cookidoo.guide import INSTRUCTIONS, QUESTIONNAIRE_CATEGORIES, QUESTIONNAIRE_STEPS
@@ -178,17 +178,23 @@ def plan_purchase(
     Pass one item per ingredient with the product you chose: `name`,
     `product_id`, `price` per package, `package_amount` as the shop shows it
     ("500 g", "4 x 125 g", "cca 0,85 kg"), and the ingredient's `quantity` and
-    `unit` from the shopping list. Ingredients sharing a product are combined.
-    Pass the current cart as `cart` (`product_id`, `quantity`) with
-    `cart_total`, and the shop's `minimum_order` when the cart reports it.
-    `productId` works in place of `product_id`.
+    `unit` from the shopping list. Ingredients sharing a product are combined
+    into one line; give them the same `price` and `package_amount`, otherwise
+    the line is marked inexact and uses the first item's values. Pass the
+    current cart as `cart` (`product_id`, `quantity`) with `cart_total`, and the
+    shop's `minimum_order` when the cart reports it. `productId` works in place
+    of `product_id`; an item or cart line without either is an error.
 
     Each line has `packages`, `leftover`, `already_in_cart` and `add`. When
     `exact` is false, read `note` and, if needed, call again with `packages`
-    set on that item. `to_add` is ready for the shop's add-to-cart tool;
-    `missing_to_minimum` above zero means the order is below the minimum.
+    set on that item; `packages: 0` buys none. `to_add` is ready for the shop's
+    add-to-cart tool; `missing_to_minimum` above zero means the order is below
+    the minimum.
     """
-    return plan_purchase_core(items, cart, cart_total, minimum_order)
+    try:
+        return plan_purchase_core(items, cart, cart_total, minimum_order)
+    except PurchasePlanError as e:
+        raise ToolError(str(e)) from e
 
 
 @mcp.tool()

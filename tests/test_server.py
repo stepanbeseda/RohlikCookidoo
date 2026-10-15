@@ -4,6 +4,7 @@ import asyncio
 
 import pytest
 from fastmcp import Client
+from fastmcp.exceptions import ToolError
 
 from rohlik_cookidoo import memory, server
 from rohlik_cookidoo.cookidoo import CookidooError
@@ -164,3 +165,24 @@ def test_plan_purchase_tool():
     })
     assert plan["to_add"] == [{"product_id": 1349783, "quantity": 2}]
     assert plan["missing_to_minimum"] == 743.94
+
+
+def test_plan_purchase_tool_names_an_item_without_product_id():
+    with pytest.raises(ToolError) as error:
+        call("plan_purchase", {"items": [
+            {"name": "máslo", "product_id": 2, "package_amount": "250 g"},
+            {"name": "cibule", "package_amount": "1 kg", "quantity": 1, "unit": "kg"},
+        ]})
+    # The whole text: an unmapped ValueError would arrive with a "Error calling tool" prefix.
+    assert str(error.value) == 'item 2 ("cibule") has no product_id or productId'
+
+
+def test_plan_purchase_tool_zero_packages():
+    plan = call("plan_purchase", {
+        "items": [{"name": "cibule", "productId": 1349783, "price": 2.53,
+                   "package_amount": "cca 120 g", "quantity": 200, "unit": "g",
+                   "packages": 0}],
+        "minimum_order": 0,
+    })
+    assert plan["lines"][0]["packages"] == 0
+    assert plan["to_add"] == []
