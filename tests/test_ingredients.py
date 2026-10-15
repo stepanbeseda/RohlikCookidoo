@@ -168,4 +168,3 @@ def test_scale_ingredients():
     scaled = scale_ingredients(parse_ingredients(["300 g mouka", "sůl"]), 4 / 6)
     assert scaled[0].quantity == pytest.approx(200)
     assert scaled[1].quantity is None
-
