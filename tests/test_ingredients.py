@@ -163,6 +163,13 @@ class TestAggregateIngredients:
         totals = {item.name: item.total_quantity for item in result}
         assert totals == {"hladká mouka": 500, "mléko": 400, "vejce": 7, "sůl": None}
 
+    def test_preparation_only_name_sums_in_any_case_form(self):
+        result = aggregate_ingredients([
+            ("A", [parse_ingredient("čerstvý", "1")]),
+            ("B", [parse_ingredient("čerstvé, nasekané", "2")]),
+        ])
+        assert [(i.name, i.total_quantity) for i in result] == [("čerstvý", 3)]
+
 
 def test_zero_denominator_gives_no_amount():
     ingredient = parse_ingredient("1/0 g mouky")

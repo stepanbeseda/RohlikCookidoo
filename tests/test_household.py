@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from rohlik_cookidoo import household as household_module
+from rohlik_cookidoo import text as text_module
 from rohlik_cookidoo.household import Household
 
 PANTRY = ["sůl", "pepř", "voda", "olej", "máslo", "hladká mouka"]
@@ -129,6 +130,11 @@ def test_exact_match_wins_over_similar(household):
     assert status(household, "oleje") == ("have", "olej")
 
 
+def test_preparation_only_name_is_at_home(household):
+    write_pantry(household, "čerstvý\n")
+    assert status(household, "čerstvé") == ("have", "čerstvý")
+
+
 def test_look_up_answers_every_name_in_order(household):
     write_pantry(household, "sůl\n")
     household.remember_products([{"ingredient": "cibule", "product_id": 1, "product_name": "C"}])
@@ -194,6 +200,17 @@ class TestPantry:
         household.update_pantry(remove=["rýže"])
         assert household.pantry_file.read_text(encoding="utf-8") == "# doma\nsůl\n"
 
+    def test_add_preparation_only_name_twice_keeps_one_line(self, household):
+        household.update_pantry(always_at_home=["čerstvý"])
+        household.update_pantry(always_at_home=["čerstvé"])
+        assert household.pantry_file.read_text(encoding="utf-8") == "čerstvý\n"
+
+    def test_remove_drops_only_the_same_item(self, household):
+        write_pantry(household, "čerstvý\n123\n456\n(poznámka)\nsůl\n")
+        assert household.update_pantry(remove=["123", ", nic"]) == {
+            "always_at_home": ["čerstvý", "456", "(poznámka)", "sůl"], "ask_first": [],
+        }
+
     def test_overview_splits_modes(self, household):
         write_pantry(household, "sůl\n? máslo\npepř\n")
         assert household.pantry() == {
@@ -248,13 +265,52 @@ class TestProducts:
         assert household.forget_product("máslo") is False
         assert replaced == []
 
-    def test_name_without_letters_is_not_stored(self, household):
+    def test_preparation_only_name_is_remembered(self, household):
+        [entry] = household.remember_products([
+            {"ingredient": "čerstvý", "product_id": 7, "product_name": "X"}])
+        assert entry["ingredient"] == "čerstvý"
+        assert household.look_up(["čerstvé"])[0].usual_product["product_id"] == 7
+
+    def test_name_without_identity_is_not_stored(self, household):
         stored = household.remember_products([
-            {"ingredient": "123", "product_id": 1, "product_name": "X"}
+            {"ingredient": "", "product_id": 1, "product_name": "X"},
+            {"ingredient": " (volitelně) ", "product_id": 2, "product_name": "Y"},
+            {"ingredient": ", nakrájená", "product_id": 3, "product_name": "Z"},
         ])
         assert stored == []
         assert household.usual_products() == []
         assert not household.products_file.exists()
+        [entry] = household.remember_products([
+            {"ingredient": "123", "product_id": 4, "product_name": "W"}])
+        assert household.look_up(["123"])[0].usual_product == entry
+
+    def test_entries_without_an_ingredient_are_skipped_and_kept(self, household):
+        household.data_dir.mkdir(parents=True)
+        household.products_file.write_text(json.dumps({
+            "x": 1, "y": {"product_id": 2}, "z": {"ingredient": ""},
+            "masl": {"ingredient": "másla", "product_id": 3, "product_name": "M",
+                     "updated": "2026-01-01"},
+        }), encoding="utf-8")
+        assert [e["product_id"] for e in household.usual_products()] == [3]
+        household.remember_products([{"ingredient": "mrkev", "product_id": 5, "product_name": "R"}])
+        stored = json.loads(household.products_file.read_text(encoding="utf-8"))
+        assert sorted(stored) == ["masl", "mrkv", "x", "y", "z"]
+
+    def test_the_latest_of_two_entries_for_one_ingredient_wins(self, household):
+        household.data_dir.mkdir(parents=True)
+        household.products_file.write_text(json.dumps({
+            "maslo": {"ingredient": "máslo", "product_id": 1, "product_name": "Old",
+                      "updated": "2026-09-01"},
+            "masl": {"ingredient": "másla", "product_id": 2, "product_name": "New",
+                     "updated": "2026-10-01"},
+            "masl x": {"ingredient": "Máslo", "product_id": 3, "product_name": "Older",
+                       "updated": "2026-08-01"},
+        }), encoding="utf-8")
+        assert household.look_up(["máslo"])[0].usual_product["product_id"] == 2
+        assert [e["product_id"] for e in household.usual_products()] == [2]
+        household.remember_products([{"ingredient": "mrkev", "product_id": 5, "product_name": "R"}])
+        stored = json.loads(household.products_file.read_text(encoding="utf-8"))
+        assert {k: e["product_id"] for k, e in stored.items()} == {"masl": 2, "mrkv": 5}
 
 
 class TestPreferences:
@@ -314,6 +370,17 @@ class TestFromEnv:
         assert stored == {"quality": "bio"}
 
 
+@pytest.fixture(params=["new irregular form", "new preparation word"])
+def changed_stemmer(request, monkeypatch):
+    """Simulate a later release whose stemming rules differ."""
+    if request.param == "new irregular form":
+        monkeypatch.setitem(text_module._IRREGULAR, "masl", "maslo")
+    else:
+        monkeypatch.setattr(
+            text_module, "_IGNORED_STEMS", text_module._IGNORED_STEMS | {"hladk"}
+        )
+
+
 class TestCurrentReleaseFiles:
     def test_load(self, household):
         write_current_files(household)
@@ -346,6 +413,26 @@ class TestCurrentReleaseFiles:
         assert {key: after[key] for key in before} == before
         assert len(after) == len(before) + 1
         assert (added[0]["ingredient"], added[0]["updated"]) == ("mrkev", date.today().isoformat())
+
+    def test_recalled_in_any_case_form(self, household):
+        write_current_files(household)
+        names = ["máslo", "másla", "MÁSLO", "máslem", "hladká mouka", "mouky hladké",
+                 "hladkou mouku", "Hladká mouka, prosátá", "cibule", "cibulí", "cibuli (červená)"]
+        assert [f.usual_product["product_id"] for f in household.look_up(names)] == (
+            [1462148] * 4 + ["2001"] * 4 + [1298821] * 3)
+
+    def test_usual_products_survive_a_stemmer_change(self, household, changed_stemmer):
+        write_current_files(household)
+        found = household.look_up(["máslo", "hladká mouka", "cibule"])
+        assert [f.usual_product["product_id"] for f in found] == [1462148, "2001", 1298821]
+        household.remember_products([
+            {"ingredient": "máslo", "product_id": 9, "product_name": "N"},
+            {"ingredient": "hladká mouka", "product_id": 8, "product_name": "M"},
+        ])
+        stored = json.loads(household.products_file.read_text(encoding="utf-8"))
+        assert sorted(e["product_id"] for e in stored.values()) == [8, 9, 1298821]
+        assert household.forget_product("cibulí") is True
+        assert sorted(e["product_id"] for e in household.usual_products()) == [8, 9]
 
 
 def test_update_pantry_without_a_change_writes_nothing(household, replaced):
@@ -414,7 +501,7 @@ def test_remember_products_writes_once(household, replaced):
     stored = household.remember_products([
         {"ingredient": "máslo", "product_id": 1, "product_name": "M"},
         {"ingredient": "cibule", "product_id": 2, "product_name": "C"},
-        {"ingredient": "123", "product_id": 3, "product_name": "X"},
+        {"ingredient": "", "product_id": 3, "product_name": "X"},
         {"ingredient": "mléko", "product_id": 4, "product_name": "L"},
     ])
     assert replaced == ["products.json"]

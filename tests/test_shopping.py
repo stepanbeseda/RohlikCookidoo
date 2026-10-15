@@ -318,3 +318,18 @@ def test_a_week_that_cannot_be_loaded_is_an_error(household):
     source = FakeSource(week_error=CookidooError("Cookidoo request failed: x"))
     with pytest.raises(CookidooError):
         shop(household, source)
+
+
+def test_preparation_only_name_is_one_ingredient(household):
+    household.remember_products([{"ingredient": "čerstvá", "product_id": 7, "product_name": "X"}])
+    recipes = [
+        {"name": "A", "ingredients": [{"name": "čerstvý", "quantity": "1"}]},
+        {"name": "B", "ingredients": [{"name": "čerstvé", "quantity": "2"}]},
+    ]
+    [line] = shop(household, recipes=recipes)["to_buy"]
+    assert (line["name"], line["quantity"], line["usual_product"]["product_id"]) == (
+        "čerstvý", 3, 7)
+    household.update_pantry(always_at_home=["čerstvé"])
+    result = shop(household, recipes=recipes)
+    assert [(i["name"], i["pantry_item"]) for i in result["at_home"]] == [("čerstvý", "čerstvé")]
+    assert result["to_buy"] == result["check_at_home"] == []

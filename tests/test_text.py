@@ -2,7 +2,7 @@
 
 import pytest
 
-from rohlik_cookidoo.text import clean_name, name_key, normalize, stem
+from rohlik_cookidoo.text import Relation, clean_name, identity, normalize, stem
 
 
 def test_normalize_strips_diacritics_and_case():
@@ -39,13 +39,39 @@ def test_clean_name():
     assert clean_name("pepř podle chuti") == "pepř"
 
 
-def test_name_key_ignores_order_case_form_and_preparation():
-    key = name_key("hladká mouka")
-    assert name_key("hladké mouky") == key
-    assert name_key("Mouka hladká, prosátá") == key
-    assert name_key("mletého černého pepře") == name_key("černý pepř")
+SAME, BROADER, NARROWER, UNRELATED = (
+    Relation.SAME, Relation.BROADER, Relation.NARROWER, Relation.UNRELATED)
+REVERSE = {SAME: SAME, BROADER: NARROWER, NARROWER: BROADER, UNRELATED: UNRELATED}
+
+TABLE = [
+    ("másla", "máslo", SAME), ("soli", "Sůl", SAME), ("vajec", "vejce", SAME),
+    ("žampiónů", "žampióny", SAME), ("česneku", "česnek", SAME),
+    ("hladké mouky", "mouka hladká", SAME), ("Mouka hladká, prosátá", "hladká mouka", SAME),
+    ("mléko (plnotučné)", "mléko", SAME), ("pepř podle chuti", "pepř", SAME),
+    ("mletého černého pepře", "černý pepř", SAME), ("nakrájená cibule", "cibule", SAME),
+    ("čerstvý", "čerstvé", SAME), ("čerstvý, nasekaný", "čerstvý", SAME), ("123", "123", SAME),
+    ("sezamový olej", "olej", BROADER), ("arašídové máslo", "máslo", BROADER),
+    ("mletého černého pepře", "pepř", BROADER), ("hladká mouka", "mouka", BROADER),
+    ("mouka", "hladká mouka", NARROWER), ("olej", "olivový olej", NARROWER),
+    ("máslo", "maso", UNRELATED), ("olej", "ocet", UNRELATED), ("podmáslí", "máslo", UNRELATED),
+    ("olejovky", "olej", UNRELATED), ("čerstvý", "čerstvý sýr", UNRELATED),
+    ("123", "456", UNRELATED), ("", "", UNRELATED), ("", "máslo", UNRELATED),
+    (" (volitelně) ", "(volitelně)", UNRELATED),
+]
 
 
-def test_name_key_keeps_qualifiers_that_change_the_product():
-    assert name_key("sezamový olej") != name_key("olej")
-    assert name_key("arašídové máslo") != name_key("máslo")
+@pytest.mark.parametrize(("name", "other", "relation"), TABLE)
+def test_identity_table(name, other, relation):
+    assert identity(name).relation(identity(other)) is relation
+    assert identity(other).relation(identity(name)) is REVERSE[relation]
+    if identity(name):
+        assert (identity(name) == identity(other)) is (relation is SAME)
+
+
+@pytest.mark.parametrize(("name", "key"), [
+    ("másla", "masl"), ("hladké mouky", "hladk mouk"), ("cibule", "cibul"), ("čerstvý", "cerstv"),
+    ("123, nakrájené", "123"), ("(volitelně)", ""),
+])
+def test_identity_text_is_the_products_key(name, key):
+    assert str(identity(name)) == key
+    assert bool(identity(name)) is bool(key)
