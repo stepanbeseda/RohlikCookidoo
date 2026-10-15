@@ -3,6 +3,8 @@
 pantry.txt
 products.json
 preferences.json
+# Temporary files of an interrupted write (they hold the same data)
+.*.tmp
 
 # Python
 __pycache__/

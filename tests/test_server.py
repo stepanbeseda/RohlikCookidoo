@@ -1,14 +1,15 @@
 """Tests for the MCP server, called in-process through the MCP protocol."""
 
 import asyncio
+import os
+from pathlib import Path
 
 import pytest
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
-from rohlik_cookidoo import memory, server
+from rohlik_cookidoo import server
 from rohlik_cookidoo.cookidoo import CookidooError
-from rohlik_cookidoo.pantry import add_pantry_item
 
 WEEK = {
     "week_start": "2026-10-12",
@@ -46,6 +47,13 @@ class FakeCookidoo:
         return RECIPES[recipe_id]
 
 
+@pytest.fixture(autouse=True)
+def home(household, monkeypatch):
+    """Point the server at the temporary household instead of the environment's."""
+    monkeypatch.setattr(server, "household", household)
+    return household
+
+
 @pytest.fixture
 def fake(monkeypatch):
     client = FakeCookidoo()
@@ -72,8 +80,8 @@ def test_server_ships_its_instructions():
     assert "prepare_shopping" in call("get_shopping_guide")
 
 
-def test_prepare_shopping_for_the_week(fake):
-    add_pantry_item("sůl")
+def test_prepare_shopping_for_the_week(fake, home):
+    home.update_pantry(always_at_home=["sůl"])
     result = call("prepare_shopping")
 
     assert (result["source"], result["week_start"]) == ("week", "2026-10-12")
@@ -85,6 +93,11 @@ def test_prepare_shopping_for_the_week(fake):
     assert result["pantry_setup_needed"] is False
     assert result["failed"] == []
     assert fake.week_offsets == [0]
+
+
+def test_a_pantry_of_only_ask_first_items_needs_no_setup(fake, home):
+    home.update_pantry(ask_first=["máslo"])
+    assert call("prepare_shopping")["pantry_setup_needed"] is False
 
 
 def test_prepare_shopping_next_week_and_empty_pantry(fake):
@@ -119,9 +132,10 @@ def test_prepare_shopping_reports_a_recipe_that_failed(fake):
     assert result["failed"] == [{"id": "r404", "error": "Recipe r404 not found"}]
 
 
-def test_prepare_shopping_returns_preferences_and_usual_products(fake):
-    memory.set_preference("quality", "bio")
-    memory.remember_product("cibule", 1298821, "Cibule žlutá, síť", "1 kg")
+def test_prepare_shopping_returns_preferences_and_usual_products(fake, home):
+    home.set_preference("quality", "bio")
+    home.remember_products([{"ingredient": "cibule", "product_id": 1298821,
+                             "product_name": "Cibule žlutá, síť", "package_amount": "1 kg"}])
     result = call("prepare_shopping")
     assert result["preferences"] == {"quality": "bio"}
     assert result["to_buy"][0]["usual_product"]["product_id"] == 1298821
@@ -186,3 +200,41 @@ def test_plan_purchase_tool_zero_packages():
     })
     assert plan["lines"][0]["packages"] == 0
     assert plan["to_add"] == []
+
+
+def test_household_is_resolved_once_from_the_environment(tmp_path, monkeypatch):
+    monkeypatch.setattr(server, "household", None)
+    monkeypatch.delenv("PANTRY_PATH", raising=False)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "first"))
+    (tmp_path / "first").mkdir()
+    (tmp_path / "first" / "pantry.txt").write_text("sůl\n", encoding="utf-8")
+    assert call("get_pantry")["always_at_home"] == ["sůl"]
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path / "second"))
+    call("update_pantry", {"always_at_home": ["rýže"]})
+    assert not (tmp_path / "second").exists()
+    assert (tmp_path / "first" / "pantry.txt").read_text(encoding="utf-8") == "sůl\nrýže\n"
+
+
+def test_update_pantry_and_record_purchase_write_each_file_once(home, monkeypatch):
+    replaced = []
+    real = os.replace
+
+    def spy(source, destination):
+        if Path(destination).parent == home.data_dir:
+            replaced.append(Path(destination).name)
+        real(source, destination)
+
+    monkeypatch.setattr(os, "replace", spy)
+    call("update_pantry", {
+        "always_at_home": ["sůl", "rýže"], "ask_first": ["máslo", "vejce"], "remove": ["pepř"],
+    })
+    assert replaced == ["pantry.txt"]
+
+    replaced.clear()
+    call("record_purchase", {"products": [
+        {"ingredient": "cibule", "product_id": 1, "product_name": "Cibule"},
+        {"ingredient": "másla", "product_id": 2, "product_name": "Máslo"},
+        {"ingredient": "mléka", "product_id": 3, "product_name": "Mléko"},
+    ]})
+    assert replaced == ["products.json"]

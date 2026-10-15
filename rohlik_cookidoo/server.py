@@ -5,8 +5,8 @@ and recipes, the shopping list, the home pantry, package and cart maths, and
 the user's usual products and preferences.
 
 Run it with `python server.py` from the repository root. Configuration comes
-from environment variables, with a `.env` file in the repository root as a
-fallback:
+from environment variables; `server.py` also reads a `.env` file next to it
+as a fallback (importing this module reads none):
 
     COOKIDOO_EMAIL, COOKIDOO_PASSWORD   Cookidoo credentials
     COOKIDOO_COUNTRY, COOKIDOO_LANGUAGE defaults "cz" / "cs"
@@ -30,27 +30,31 @@ import logging
 import os
 import re
 from collections.abc import Mapping
-from pathlib import Path
 from typing import NotRequired, TypedDict
 
-from dotenv import load_dotenv
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
-from rohlik_cookidoo import memory
 from rohlik_cookidoo.cart import DEFAULT_MINIMUM_ORDER, PurchasePlanError
 from rohlik_cookidoo.cart import plan_purchase as plan_purchase_core
 from rohlik_cookidoo.cookidoo import CookidooClient, CookidooError
 from rohlik_cookidoo.guide import INSTRUCTIONS, QUESTIONNAIRE_CATEGORIES, QUESTIONNAIRE_STEPS
-from rohlik_cookidoo.pantry import add_pantry_item, read_pantry_lines, remove_pantry_item
-from rohlik_cookidoo.shopping import Recipe, build_shopping_list, pantry_overview
-
-load_dotenv(Path(__file__).parent.parent / ".env")
+from rohlik_cookidoo.household import Household
+from rohlik_cookidoo.shopping import Recipe, build_shopping_list
 
 mcp = FastMCP("rohlik-cookidoo", instructions=INSTRUCTIONS)
 cookidoo = CookidooClient()
+household: Household | None = None
+
+
+def current_household() -> Household:
+    """The user's files, resolved from the environment on first use."""
+    global household
+    if household is None:
+        household = Household.from_env(os.environ)
+    return household
 
 
 class PurchaseItem(TypedDict):
@@ -112,6 +116,7 @@ async def collect_recipes(
 
 async def prepare(
     client: CookidooClient,
+    household: Household,
     week_offset: int = 0,
     recipe_ids: list[str] | None = None,
     recipes: list[Recipe] | None = None,
@@ -119,8 +124,8 @@ async def prepare(
 ) -> dict:
     """Collect recipes and build the shopping list with everything the model needs."""
     collected = await collect_recipes(client, week_offset, recipe_ids, recipes, target_servings)
-    pantry_lines = read_pantry_lines()
-    shopping = build_shopping_list(collected["recipes"], pantry_lines)
+    shopping = build_shopping_list(collected["recipes"], household)
+    pantry = household.pantry()
     return {
         **{key: value for key, value in collected.items() if key != "recipes"},
         "recipes": [
@@ -133,8 +138,8 @@ async def prepare(
             for recipe in collected["recipes"]
         ],
         **shopping,
-        "preferences": memory.get_preferences(),
-        "pantry_setup_needed": not pantry_lines,
+        "preferences": household.preferences(),
+        "pantry_setup_needed": not (pantry["always_at_home"] or pantry["ask_first"]),
     }
 
 
@@ -161,7 +166,9 @@ async def prepare_shopping(
     Czech genitive, "másla").
     """
     try:
-        return await prepare(cookidoo, week_offset, recipe_ids, recipes, target_servings)
+        return await prepare(
+            cookidoo, current_household(), week_offset, recipe_ids, recipes, target_servings
+        )
     except CookidooError as e:
         raise ToolError(str(e)) from e
 
@@ -203,22 +210,13 @@ def record_purchase(products: list[BoughtProduct]) -> dict:
 
     Next time they come back as `usual_product` for the same ingredient.
     """
-    remembered = [
-        memory.remember_product(
-            product["ingredient"],
-            product["product_id"],
-            product["product_name"],
-            product.get("package_amount", ""),
-        )
-        for product in products
-    ]
-    return {"remembered": [entry for entry in remembered if entry]}
+    return {"remembered": current_household().remember_products(products)}
 
 
 @mcp.tool()
 def forget_product(ingredient: str) -> dict:
     """Forget the usual product for an ingredient, e.g. when the user did not like it."""
-    return {"forgotten": memory.forget_product(ingredient)}
+    return {"forgotten": current_household().forget_product(ingredient)}
 
 
 @mcp.tool()
@@ -246,7 +244,7 @@ async def get_recipe_details(recipe_id: str) -> dict:
 @mcp.tool()
 def get_pantry() -> dict:
     """List what the user keeps at home: `always_at_home` and `ask_first` items."""
-    return pantry_overview(read_pantry_lines())
+    return current_household().pantry()
 
 
 @mcp.tool()
@@ -260,13 +258,7 @@ def update_pantry(
     `always_at_home` items are never bought. `ask_first` items are usually at
     home but run out, so the user is asked. Returns the whole pantry.
     """
-    for item in remove or []:
-        remove_pantry_item(item)
-    for item in always_at_home or []:
-        add_pantry_item(item)
-    for item in ask_first or []:
-        add_pantry_item(item, ask=True)
-    return pantry_overview(read_pantry_lines())
+    return current_household().update_pantry(always_at_home or (), ask_first or (), remove or ())
 
 
 @mcp.tool()
@@ -279,17 +271,15 @@ def get_pantry_questionnaire() -> dict:
     return {
         "steps": QUESTIONNAIRE_STEPS,
         "categories": QUESTIONNAIRE_CATEGORIES,
-        "current_pantry": pantry_overview(read_pantry_lines()),
+        "current_pantry": current_household().pantry(),
     }
 
 
 @mcp.tool()
 def get_shopping_preferences() -> dict:
     """Get the user's lasting preferences and the products they bought before."""
-    return {
-        "preferences": memory.get_preferences(),
-        "usual_products": memory.list_products(),
-    }
+    home = current_household()
+    return {"preferences": home.preferences(), "usual_products": home.usual_products()}
 
 
 @mcp.tool()
@@ -299,7 +289,7 @@ def set_shopping_preference(key: str, value: str) -> dict:
     Use short keys such as "quality" (bio / cheapest / best value / Rohlik
     brands), "diet" or "avoid". Store only what the user asked you to keep.
     """
-    return {"preferences": memory.set_preference(key, value)}
+    return {"preferences": current_household().set_preference(key, value)}
 
 
 @mcp.tool()

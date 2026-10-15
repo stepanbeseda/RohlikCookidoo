@@ -1,15 +1,14 @@
-"""Building a shopping list from recipes, the pantry and the user's memory."""
+"""Building a shopping list from recipes and the user's household."""
 
 from typing import NotRequired, TypedDict
 
-from rohlik_cookidoo import memory
+from rohlik_cookidoo.household import ASK, CHECK, HAVE, Household
 from rohlik_cookidoo.ingredients import (
     aggregate_ingredients,
     format_quantity,
     parse_recipe_ingredients,
     scale_ingredients,
 )
-from rohlik_cookidoo.pantry import ASK, CHECK, HAVE, match_pantry, split_marker
 
 
 class RecipeIngredient(TypedDict):
@@ -24,7 +23,7 @@ class Recipe(TypedDict):
     target_servings: NotRequired[int]
 
 
-def build_shopping_list(recipes: list[Recipe], pantry_items: list[str]) -> dict:
+def build_shopping_list(recipes: list[Recipe], household: Household) -> dict:
     """Sum the recipes' ingredients and sort them by what the pantry covers."""
     parsed = []
     for recipe in recipes:
@@ -35,8 +34,9 @@ def build_shopping_list(recipes: list[Recipe], pantry_items: list[str]) -> dict:
         parsed.append((recipe["name"], ingredients))
 
     result: dict[str, list[dict]] = {"to_buy": [], "check_at_home": [], "at_home": []}
-    for item in aggregate_ingredients(parsed):
-        status, pantry_item = match_pantry(item.name, pantry_items)
+    items = aggregate_ingredients(parsed)
+    for item, found in zip(items, household.look_up(i.name for i in items), strict=True):
+        status, pantry_item = found.pantry_status, found.pantry_item
         entry = {
             "name": item.name,
             "quantity": item.total_quantity,
@@ -49,9 +49,8 @@ def build_shopping_list(recipes: list[Recipe], pantry_items: list[str]) -> dict:
             result["at_home"].append({**entry, "pantry_item": pantry_item})
             continue
 
-        usual = memory.recall_product(item.name)
-        if usual:
-            entry["usual_product"] = usual
+        if found.usual_product:
+            entry["usual_product"] = found.usual_product
         if status in (ASK, CHECK):
             entry["pantry_item"] = pantry_item
             entry["check_reason"] = "ask_user" if status == ASK else "similar_item"
@@ -59,12 +58,3 @@ def build_shopping_list(recipes: list[Recipe], pantry_items: list[str]) -> dict:
         else:
             result["to_buy"].append(entry)
     return result
-
-
-def pantry_overview(lines: list[str]) -> dict:
-    """Split pantry lines into always-at-home items and ask-first items."""
-    items = [split_marker(line) for line in lines]
-    return {
-        "always_at_home": [name for name, ask in items if not ask],
-        "ask_first": [name for name, ask in items if ask],
-    }
