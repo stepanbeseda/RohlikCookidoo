@@ -30,14 +30,15 @@ import os
 import re
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import NotRequired, TypedDict
+from typing import Annotated, NotRequired, TypedDict
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from pydantic import AliasChoices, BeforeValidator, Field
 from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 
-from rohlik_cookidoo.cart import DEFAULT_MINIMUM_ORDER, PurchasePlanError
+from rohlik_cookidoo.cart import DEFAULT_MINIMUM_ORDER, PurchasePlanError, bought_products
 from rohlik_cookidoo.cart import plan_purchase as plan_purchase_core
 from rohlik_cookidoo.cookidoo import CookidooClient, CookidooError
 from rohlik_cookidoo.guide import INSTRUCTIONS, QUESTIONNAIRE_CATEGORIES, QUESTIONNAIRE_STEPS
@@ -70,11 +71,19 @@ def _tool_errors() -> Iterator[None]:
         raise ToolError(str(e)) from e
 
 
+def _listed(value: object) -> object:
+    """A single ingredient name, as the old `ingredient` field gave it, becomes a list."""
+    return [value] if isinstance(value, str) else value
+
+
+# Old input field names are still read but not shown in the schema: "name" for an item's
+# ingredient, "ingredient" (one name) for a bought product's. Drop them after release 0.8.0.
 class PurchaseItem(TypedDict):
-    name: str
+    ingredient: Annotated[str, Field(validation_alias=AliasChoices("ingredient", "name"))]
     package_amount: str
     product_id: NotRequired[int]
     productId: NotRequired[int]
+    product_name: NotRequired[str]
     price: NotRequired[float]
     quantity: NotRequired[float | None]
     unit: NotRequired[str | None]
@@ -88,8 +97,13 @@ class CartLine(TypedDict):
 
 
 class BoughtProduct(TypedDict):
-    ingredient: str
-    product_id: int
+    ingredients: Annotated[
+        list[str],
+        BeforeValidator(_listed),
+        Field(validation_alias=AliasChoices("ingredients", "ingredient")),
+    ]
+    product_id: NotRequired[int]
+    productId: NotRequired[int]
     product_name: str
     package_amount: NotRequired[str]
 
@@ -110,12 +124,13 @@ async def prepare_shopping(
     `target_servings` (1 or more) to cook a different number of portions.
 
     Returns the `recipes` used and three ingredient lists with summed amounts:
-    `to_buy`, `check_at_home` (see `check_reason`) and `at_home`. A recipe that
-    does not say how many servings it makes is not scaled and carries a `note`.
-    Ingredients may carry `usual_product`, what the user bought for them last
-    time. Also returns the user's `preferences`, the `failed` recipes with the
-    reason, and `pantry_setup_needed`. Ingredient names keep the recipe's form
-    (often the Czech genitive, "másla").
+    `to_buy`, `check_at_home` (see `check_reason`) and `at_home`. Each entry has
+    `ingredient` (the name in the recipe's form, often the Czech genitive
+    "másla"), `quantity` in `unit`, `display` and `sources`, and may carry
+    `usual_product`, what the user bought for it last time; hand the entry to
+    `plan_purchase` as it is. A recipe that does not say how many servings it
+    makes is not scaled and carries a `note`. Also returns the user's
+    `preferences`, the `failed` recipes with the reason, and `pantry_setup_needed`.
     """
     with _tool_errors():
         return await prepare(
@@ -137,21 +152,23 @@ def plan_purchase(
 ) -> dict:
     """Work out package counts, leftovers, cart additions and totals. Do not calculate these yourself.
 
-    Pass one item per ingredient with the product you chose: `name`,
-    `product_id`, `price` per package, `package_amount` as the shop shows it
-    ("500 g", "4 x 125 g", "cca 0,85 kg"), and the ingredient's `quantity` and
-    `unit` from the shopping list. Ingredients sharing a product are combined
-    into one line; give them the same `price` and `package_amount`, otherwise
-    the line is marked inexact and uses the first item's values. Pass the
-    current cart as `cart` (`product_id`, `quantity`) with `cart_total`, and the
-    shop's `minimum_order` when the cart reports it. `productId` works in place
-    of `product_id`; an item or cart line without either is an error.
+    Pass one item per ingredient: its entry from `prepare_shopping` (`ingredient`,
+    `quantity`, `unit`) plus the product you chose: `product_id`, `product_name`,
+    `price` per package and `package_amount` as the shop shows it ("500 g",
+    "4 x 125 g", "cca 0,85 kg"). Ingredients sharing a product are combined into
+    one line; give them the same `price` and `package_amount`, otherwise the line
+    is marked inexact and uses the first item's values. Pass the current cart as
+    `cart` (`product_id`, `quantity` = packages in the cart) with `cart_total`,
+    and the shop's `minimum_order` when the cart reports it. `productId` works in
+    place of `product_id`; an item or cart line without either is an error.
 
-    Each line has `packages`, `leftover`, `already_in_cart` and `add`. When
-    `exact` is false, read `note` and, if needed, call again with `packages`
-    set on that item; `packages: 0` buys none. `to_add` is ready for the shop's
-    add-to-cart tool; `missing_to_minimum` above zero means the order is below
-    the minimum.
+    Each line has `ingredients`, `product_id`, `product_name`, `package_amount`,
+    `packages`, `leftover`, `already_in_cart` and `add`; hand the lines of the
+    products you added to `record_purchase` as they are. When `exact` is false,
+    read `note` and, if needed, call again with `packages` set on that item;
+    `packages: 0` buys none. `to_add` ({"productId", "quantity"}) is ready for the
+    shop's add-to-cart tool; `missing_to_minimum` above zero means the order is
+    below the minimum.
     """
     with _tool_errors():
         return plan_purchase_core(items, cart, cart_total, minimum_order)
@@ -161,9 +178,14 @@ def plan_purchase(
 def record_purchase(products: list[BoughtProduct]) -> dict:
     """Remember the products that were added to the cart after the user confirmed.
 
-    Next time they come back as `usual_product` for the same ingredient.
+    Pass the `lines` from `plan_purchase` of the products that were added, as they
+    are; each needs `ingredients`, `product_id` (or `productId`) and
+    `product_name`, and its `package_amount` is kept too. Next time every one of
+    those ingredients comes with its `usual_product`.
     """
-    return {"remembered": current_household().remember_products(products)}
+    with _tool_errors():
+        entries = bought_products(products)
+    return {"remembered": current_household().remember_products(entries)}
 
 
 @mcp.tool()
