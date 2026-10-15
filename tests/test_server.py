@@ -95,6 +95,11 @@ def test_prepare_shopping_for_the_week(fake, home):
     assert fake.week_offsets == [0]
 
 
+def test_a_pantry_of_only_ask_first_items_needs_no_setup(fake, home):
+    home.update_pantry(ask_first=["máslo"])
+    assert call("prepare_shopping")["pantry_setup_needed"] is False
+
+
 def test_prepare_shopping_next_week_and_empty_pantry(fake):
     result = call("prepare_shopping", {"week_offset": 1})
     assert fake.week_offsets == [1]
