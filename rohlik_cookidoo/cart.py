@@ -4,9 +4,15 @@
 and, for each product, works out the package count and leftover, compares it with the
 cart and prices what is missing; then it adds up the totals against the minimum order.
 Package sizes and amounts are read and compared by `rohlik_cookidoo.amount`.
+
+A plan line keeps its ingredients as a list and carries the product's ID, name and
+package size, so it can be handed back as it is: `bought_products` turns such lines into
+one usual-product entry per ingredient.
 """
 
 import math
+from collections.abc import Iterable, Mapping
+from typing import TypedDict
 
 from rohlik_cookidoo.amount import Amount, canonical_unit, format_quantity, parse_package, total
 
@@ -16,7 +22,23 @@ DEFAULT_MINIMUM_ORDER = 749.0
 
 
 class PurchasePlanError(ValueError):
-    """An item or cart line the plan cannot use; the message names it."""
+    """An item, cart line or bought product the plan cannot use; the message names it."""
+
+
+class PlanLine(TypedDict):
+    """One product of the plan; `record_purchase` takes it back as it is."""
+
+    ingredients: list[str]
+    product_id: int | str
+    product_name: str
+    package_amount: str
+    packages: int
+    already_in_cart: int
+    add: int
+    cost: float
+    exact: bool
+    note: str
+    leftover: str | None
 
 
 def plan_purchase(
@@ -28,9 +50,9 @@ def plan_purchase(
     """Turn chosen products into package counts and cart additions in one step.
 
     Args:
-        items: one per ingredient: {"name", "product_id", "package_amount",
-            "price", "quantity", "unit"}. `productId` is accepted in place of
-            `product_id`; `unit` may be any unit word ("g", "gramů", "kusy").
+        items: one per ingredient: {"ingredient", "product_id", "product_name",
+            "package_amount", "price", "quantity", "unit"}. `productId` is
+            accepted in place of `product_id`; `unit` may be any unit word ("g", "gramů", "kusy").
             A `quantity` of 0 needs no package. An explicit "packages" (0
             included) is used as given; the other items of that product are
             counted. Ingredients sharing a product are combined before rounding
@@ -43,14 +65,15 @@ def plan_purchase(
         cart_total: current cart value.
         minimum_order: order value below which the shop will not deliver.
 
-    Returns the lines (package count, what is already in the cart, what to add,
-    cost, `exact`, `note` and `leftover`), `to_add` ready to pass to an
-    add-to-cart tool, and the totals. Raises PurchasePlanError naming an item or
+    Returns the lines (`PlanLine`: the ingredients, the product's ID, name and
+    package size, package count, what is already in the cart, what to add, cost,
+    `exact`, `note` and `leftover`), `to_add` as {"productId", "quantity"} for
+    the shop's add-to-cart tool, and the totals. Raises PurchasePlanError naming an item or
     cart line without a product ID, or an item with negative `packages` or `quantity`.
     """
     groups: dict[str, list[dict]] = {}
     for index, item in enumerate(items, start=1):
-        label = f'item {index} ("{item.get("name", "")}")'
+        label = f'item {index} ("{item.get("ingredient", "")}")'
         key = str(_product_id(item, label))
         packages = item.get("packages")
         if packages is not None and packages < 0:
@@ -72,7 +95,7 @@ def plan_purchase(
         added_total += line["cost"]
         lines.append(line)
         if line["add"] > 0:
-            to_add.append({"product_id": line["product_id"], "quantity": line["add"]})
+            to_add.append({"productId": line["product_id"], "quantity": line["add"]})
 
     new_total = round(cart_total + added_total, 2)
     return {
@@ -94,7 +117,7 @@ def _product_id(line: dict, label: str) -> int | str:
     raise PurchasePlanError(f"{label} has no product_id or productId")
 
 
-def _plan_line(group: list[dict], in_cart: float) -> dict:
+def _plan_line(group: list[dict], in_cart: float) -> PlanLine:
     """One product: agreed size and price, package count, cart comparison, cost."""
     package_amount, price, conflicts = _agreed(group)
     count = _count_packages(group, package_amount)
@@ -103,8 +126,12 @@ def _plan_line(group: list[dict], in_cart: float) -> dict:
     add = packages - already
     notes = [*conflicts, count["note"]]
     return {
-        "name": ", ".join(item.get("name", "") for item in group),
+        "ingredients": [item.get("ingredient", "") for item in group],
         "product_id": _product_id(group[0], ""),
+        "product_name": next(
+            (name for item in group if (name := (item.get("product_name") or "").strip())), ""
+        ),
+        "package_amount": package_amount,
         "packages": packages,
         "already_in_cart": already,
         "add": add,
@@ -113,6 +140,34 @@ def _plan_line(group: list[dict], in_cart: float) -> dict:
         "note": "; ".join(note for note in notes if note),
         "leftover": count["leftover"],
     }
+
+
+def bought_products(products: Iterable[Mapping]) -> list[dict]:
+    """One usual-product entry per ingredient of each bought product.
+
+    A product is a plan line handed back as it is, or any mapping with
+    `ingredients`, `product_id` (or `productId`), `product_name` and
+    `package_amount`. Every product is checked before any entry is returned, so
+    one bad product stores nothing. Raises PurchasePlanError naming a product
+    without a product ID or without ingredients.
+    """
+    entries = []
+    for index, product in enumerate(products, start=1):
+        label = f'product {index} ("{product.get("product_name", "")}")'
+        product_id = _product_id(product, label)
+        ingredients = list(product.get("ingredients") or [])
+        if not ingredients:
+            raise PurchasePlanError(f"{label} has no ingredients")
+        entries.extend(
+            {
+                "ingredient": ingredient,
+                "product_id": product_id,
+                "product_name": product.get("product_name", ""),
+                "package_amount": product.get("package_amount", ""),
+            }
+            for ingredient in ingredients
+        )
+    return entries
 
 
 def _agreed(group: list[dict]) -> tuple[str, float, list[str]]:

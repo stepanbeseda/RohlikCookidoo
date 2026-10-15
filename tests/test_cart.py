@@ -2,19 +2,19 @@
 
 import pytest
 
-from rohlik_cookidoo.cart import PurchasePlanError, plan_purchase
+from rohlik_cookidoo.cart import PurchasePlanError, bought_products, plan_purchase
 
 ITEMS = [
-    {"name": "vepřová plec", "product_id": 1408929, "packages": 1, "price": 211.29,
+    {"ingredient": "vepřová plec", "product_id": 1408929, "packages": 1, "price": 211.29,
      "package_amount": "cca 0,89 kg"},
-    {"name": "cibule", "product_id": 1349783, "packages": 3, "price": 2.3,
+    {"ingredient": "cibule", "product_id": 1349783, "packages": 3, "price": 2.3,
      "package_amount": "cca 120 g"},
 ]
 
 
 def plan_one(package_amount, quantity, unit, **extra):
     """Plan a single item and return its line."""
-    item = {"name": "x", "product_id": 1, "price": 10, "package_amount": package_amount,
+    item = {"ingredient": "x", "product_id": 1, "price": 10, "package_amount": package_amount,
             "quantity": quantity, "unit": unit, **extra}
     return plan_purchase([item], minimum_order=0)["lines"][0]
 
@@ -68,8 +68,8 @@ def test_falls_back_to_one_package_with_a_note(quantity, unit, package, note):
 def test_empty_cart_adds_everything():
     plan = plan_purchase(ITEMS)
     assert plan["to_add"] == [
-        {"product_id": 1408929, "quantity": 1},
-        {"product_id": 1349783, "quantity": 3},
+        {"productId": 1408929, "quantity": 1},
+        {"productId": 1349783, "quantity": 3},
     ]
     assert plan["added_total"] == 218.19
     assert plan["cart_total_after"] == 218.19
@@ -79,7 +79,7 @@ def test_empty_cart_adds_everything():
 def test_products_in_the_cart_are_not_added_twice():
     cart = [{"product_id": 1408929, "quantity": 1}, {"product_id": 1349783, "quantity": 1}]
     plan = plan_purchase(ITEMS, cart, cart_total=213.59)
-    assert plan["to_add"] == [{"product_id": 1349783, "quantity": 2}]
+    assert plan["to_add"] == [{"productId": 1349783, "quantity": 2}]
     assert [(line["already_in_cart"], line["add"]) for line in plan["lines"]] == [(1, 0), (1, 2)]
     assert plan["added_total"] == 4.6
     assert plan["cart_total_after"] == 218.19
@@ -95,37 +95,38 @@ def test_running_twice_adds_nothing():
 
 def test_same_product_with_explicit_packages_is_merged():
     items = [
-        {"name": "cibule", "product_id": 1, "packages": 2, "price": 10, "package_amount": "1 kg"},
-        {"name": "žlutá cibule", "product_id": 1, "packages": 1, "price": 10,
+        {"ingredient": "cibule", "product_id": 1, "packages": 2, "price": 10,
+         "package_amount": "1 kg"},
+        {"ingredient": "žlutá cibule", "product_id": 1, "packages": 1, "price": 10,
          "package_amount": "1 kg"},
     ]
     plan = plan_purchase(items, minimum_order=0)
-    assert plan["to_add"] == [{"product_id": 1, "quantity": 3}]
-    assert plan["lines"][0]["name"] == "cibule, žlutá cibule"
+    assert plan["to_add"] == [{"productId": 1, "quantity": 3}]
+    assert plan["lines"][0]["ingredients"] == ["cibule", "žlutá cibule"]
     assert plan["added_total"] == 30
 
 
 def test_product_id_spelling_of_the_official_server_is_accepted():
-    items = [{"name": "cibule", "productId": 1349783, "packages": 3, "price": 2.53,
+    items = [{"ingredient": "cibule", "productId": 1349783, "packages": 3, "price": 2.53,
               "package_amount": "cca 120 g"}]
     plan = plan_purchase(items, [{"productId": 1349783, "quantity": 1}], minimum_order=749)
-    assert plan["to_add"] == [{"product_id": 1349783, "quantity": 2}]
+    assert plan["to_add"] == [{"productId": 1349783, "quantity": 2}]
 
 
 def test_missing_price_counts_as_zero():
     plan = plan_purchase(
-        [{"name": "x", "product_id": 1, "packages": 2, "package_amount": "1 kg"}]
+        [{"ingredient": "x", "product_id": 1, "packages": 2, "package_amount": "1 kg"}]
     )
-    assert plan["to_add"] == [{"product_id": 1, "quantity": 2}]
+    assert plan["to_add"] == [{"productId": 1, "quantity": 2}]
     assert plan["added_total"] == 0
 
 
 def test_packages_leftovers_and_cart_in_one_step():
     plan = plan_purchase(
         [
-            {"name": "vepřová plec", "productId": 1408929, "price": 222.49,
+            {"ingredient": "vepřová plec", "productId": 1408929, "price": 222.49,
              "package_amount": "cca 0,89 kg", "quantity": 700, "unit": "g"},
-            {"name": "cibule", "productId": 1349783, "price": 2.53,
+            {"ingredient": "cibule", "productId": 1349783, "price": 2.53,
              "package_amount": "cca 120 g", "quantity": 200, "unit": "g"},
         ],
         cart=[{"productId": 1408929, "quantity": 1}],
@@ -134,20 +135,20 @@ def test_packages_leftovers_and_cart_in_one_step():
     meat, onion = plan["lines"]
     assert (meat["packages"], meat["add"], meat["leftover"]) == (1, 0, "190 g")
     assert (onion["packages"], onion["add"], onion["leftover"]) == (2, 2, "40 g")
-    assert plan["to_add"] == [{"product_id": 1349783, "quantity": 2}]
+    assert plan["to_add"] == [{"productId": 1349783, "quantity": 2}]
     assert plan["cart_total_after"] == 227.55
 
 
 def test_ingredients_sharing_a_product_are_summed_before_rounding():
     items = [
-        {"name": "cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
+        {"ingredient": "cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
          "quantity": 200, "unit": "g"},
-        {"name": "žlutá cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
+        {"ingredient": "žlutá cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
          "quantity": 0.3, "unit": "kg"},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
-    assert (line["name"], line["packages"], line["leftover"], line["exact"]) == (
-        "cibule, žlutá cibule", 1, "0 g", True,
+    assert (line["ingredients"], line["packages"], line["leftover"], line["exact"]) == (
+        ["cibule", "žlutá cibule"], 1, "0 g", True,
     )
 
 
@@ -164,9 +165,9 @@ def test_uncomparable_amount_is_flagged():
 
 def test_shared_product_with_mixed_units_is_counted_separately():
     items = [
-        {"name": "olej", "product_id": 1, "price": 50, "package_amount": "1 l",
+        {"ingredient": "olej", "product_id": 1, "price": 50, "package_amount": "1 l",
          "quantity": 100, "unit": "ml"},
-        {"name": "oleje", "product_id": 1, "price": 50, "package_amount": "1 l",
+        {"ingredient": "oleje", "product_id": 1, "price": 50, "package_amount": "1 l",
          "quantity": 2, "unit": "lžíce"},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
@@ -177,9 +178,9 @@ def test_shared_product_with_mixed_units_is_counted_separately():
 
 def test_conflicting_package_amount_is_flagged():
     items = [
-        {"name": "cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
+        {"ingredient": "cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
          "quantity": 300, "unit": "g"},
-        {"name": "žlutá cibule", "product_id": 1, "price": 10, "package_amount": "1 kg",
+        {"ingredient": "žlutá cibule", "product_id": 1, "price": 10, "package_amount": "1 kg",
          "quantity": 300, "unit": "g"},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
@@ -192,9 +193,9 @@ def test_conflicting_package_amount_is_flagged():
 
 def test_conflicting_price_is_flagged():
     items = [
-        {"name": "cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
+        {"ingredient": "cibule", "product_id": 1, "price": 10, "package_amount": "500 g",
          "quantity": 200, "unit": "g"},
-        {"name": "žlutá cibule", "product_id": 1, "price": 12.5, "package_amount": "500 g",
+        {"ingredient": "žlutá cibule", "product_id": 1, "price": 12.5, "package_amount": "500 g",
          "quantity": 200, "unit": "g"},
     ]
     plan = plan_purchase(items, minimum_order=0)
@@ -206,11 +207,11 @@ def test_conflicting_price_is_flagged():
 
 def test_same_package_size_written_differently_is_no_conflict():
     items = [
-        {"name": "a", "product_id": 1, "price": 10, "package_amount": "1 kg",
+        {"ingredient": "a", "product_id": 1, "price": 10, "package_amount": "1 kg",
          "quantity": 300, "unit": "g"},
-        {"name": "b", "product_id": 1, "price": 10.0, "package_amount": "1000 g",
+        {"ingredient": "b", "product_id": 1, "price": 10.0, "package_amount": "1000 g",
          "quantity": 300, "unit": "g"},
-        {"name": "c", "product_id": 1, "package_amount": "", "quantity": 100, "unit": "g"},
+        {"ingredient": "c", "product_id": 1, "package_amount": "", "quantity": 100, "unit": "g"},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
     assert counted(line) == (1, True, "", "300 g")
@@ -219,9 +220,9 @@ def test_same_package_size_written_differently_is_no_conflict():
 
 def test_conflict_and_estimate_notes_are_joined():
     items = [
-        {"name": "mléko", "product_id": 1, "price": 20, "package_amount": "1 l",
+        {"ingredient": "mléko", "product_id": 1, "price": 20, "package_amount": "1 l",
          "quantity": 500, "unit": "g"},
-        {"name": "mléka", "product_id": 1, "price": 25, "package_amount": "1 l",
+        {"ingredient": "mléka", "product_id": 1, "price": 25, "package_amount": "1 l",
          "quantity": 200, "unit": "g"},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
@@ -233,7 +234,7 @@ def test_conflict_and_estimate_notes_are_joined():
 
 
 def test_zero_packages_buys_nothing():
-    item = {"name": "cibule", "product_id": 1, "price": 10, "package_amount": "1 kg",
+    item = {"ingredient": "cibule", "product_id": 1, "price": 10, "package_amount": "1 kg",
             "quantity": 300, "unit": "g", "packages": 0}
     plan = plan_purchase(
         [item], cart=[{"product_id": 1, "quantity": 2}], cart_total=20, minimum_order=0
@@ -252,8 +253,9 @@ def test_zero_packages_without_an_amount():
 
 def test_explicit_packages_keep_the_counted_part_inexact():
     items = [
-        {"name": "sůl", "product_id": 1, "price": 10, "package_amount": "1 kg", "packages": 1},
-        {"name": "soli", "product_id": 1, "price": 10, "package_amount": "1 kg",
+        {"ingredient": "sůl", "product_id": 1, "price": 10, "package_amount": "1 kg",
+         "packages": 1},
+        {"ingredient": "soli", "product_id": 1, "price": 10, "package_amount": "1 kg",
          "quantity": None, "unit": None},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
@@ -262,10 +264,10 @@ def test_explicit_packages_keep_the_counted_part_inexact():
 
 def test_counted_items_next_to_explicit_packages_are_summed():
     items = [
-        {"name": "a", "product_id": 1, "price": 10, "package_amount": "500 g", "packages": 1},
-        {"name": "b", "product_id": 1, "price": 10, "package_amount": "500 g",
+        {"ingredient": "a", "product_id": 1, "price": 10, "package_amount": "500 g", "packages": 1},
+        {"ingredient": "b", "product_id": 1, "price": 10, "package_amount": "500 g",
          "quantity": 200, "unit": "g"},
-        {"name": "c", "product_id": 1, "price": 10, "package_amount": "500 g",
+        {"ingredient": "c", "product_id": 1, "price": 10, "package_amount": "500 g",
          "quantity": 200, "unit": "g"},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
@@ -274,8 +276,8 @@ def test_counted_items_next_to_explicit_packages_are_summed():
 
 def test_item_without_product_id_is_named():
     items = [
-        {"name": "máslo", "product_id": 2, "package_amount": "250 g"},
-        {"name": "cibule", "package_amount": "1 kg", "quantity": 1, "unit": "kg"},
+        {"ingredient": "máslo", "product_id": 2, "package_amount": "250 g"},
+        {"ingredient": "cibule", "package_amount": "1 kg", "quantity": 1, "unit": "kg"},
     ]
     with pytest.raises(PurchasePlanError) as error:
         plan_purchase(items)
@@ -285,12 +287,14 @@ def test_item_without_product_id_is_named():
 @pytest.mark.parametrize("ids", [{"product_id": None}, {"productId": " "}])
 def test_blank_product_id_is_missing(ids):
     with pytest.raises(PurchasePlanError, match=r'^item 1 \("x"\)'):
-        plan_purchase([{"name": "x", "package_amount": "", **ids}])
+        plan_purchase([{"ingredient": "x", "package_amount": "", **ids}])
 
 
 def test_zero_is_a_valid_product_id():
-    plan = plan_purchase([{"name": "x", "product_id": 0, "packages": 1, "package_amount": ""}])
-    assert plan["to_add"] == [{"product_id": 0, "quantity": 1}]
+    plan = plan_purchase(
+        [{"ingredient": "x", "product_id": 0, "packages": 1, "package_amount": ""}]
+    )
+    assert plan["to_add"] == [{"productId": 0, "quantity": 1}]
 
 
 def test_cart_line_without_product_id_is_named():
@@ -309,15 +313,15 @@ def test_negative_packages_are_refused():
                                   {"product_id": 1349783}])
 def test_cart_line_without_quantity_counts_as_one(line):
     plan = plan_purchase(ITEMS, cart=[line], minimum_order=0)
-    assert plan["to_add"][1] == {"product_id": 1349783, "quantity": 2}
+    assert plan["to_add"][1] == {"productId": 1349783, "quantity": 2}
 
 
 def test_item_without_a_package_size_keeps_the_count_an_estimate():
     # The first item decides the package size, as before: the count stays a flagged
     # estimate instead of silently growing once a later item names the size.
     items = [
-        {"name": "a", "product_id": 1, "price": 10, "package_amount": "", "packages": 1},
-        {"name": "b", "product_id": 1, "price": 10, "package_amount": "1 kg",
+        {"ingredient": "a", "product_id": 1, "price": 10, "package_amount": "", "packages": 1},
+        {"ingredient": "b", "product_id": 1, "price": 10, "package_amount": "1 kg",
          "quantity": 3, "unit": "kg"},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
@@ -326,8 +330,8 @@ def test_item_without_a_package_size_keeps_the_count_an_estimate():
 
 def test_price_comes_from_the_first_item_that_has_one():
     items = [
-        {"name": "a", "product_id": 1, "package_amount": "1 kg", "packages": 1},
-        {"name": "b", "product_id": 1, "price": 10, "package_amount": "1 kg", "packages": 1},
+        {"ingredient": "a", "product_id": 1, "package_amount": "1 kg", "packages": 1},
+        {"ingredient": "b", "product_id": 1, "price": 10, "package_amount": "1 kg", "packages": 1},
     ]
     plan = plan_purchase(items, minimum_order=0)
     assert (plan["lines"][0]["cost"], plan["lines"][0]["exact"]) == (20, True)
@@ -335,8 +339,8 @@ def test_price_comes_from_the_first_item_that_has_one():
 
 def test_price_zero_is_a_price():
     items = [
-        {"name": "a", "product_id": 1, "price": 0, "package_amount": "1 kg", "packages": 1},
-        {"name": "b", "product_id": 1, "price": 10, "package_amount": "1 kg", "packages": 1},
+        {"ingredient": "a", "product_id": 1, "price": 0, "package_amount": "1 kg", "packages": 1},
+        {"ingredient": "b", "product_id": 1, "price": 10, "package_amount": "1 kg", "packages": 1},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
     assert (line["cost"], line["exact"]) == (0, False)
@@ -384,9 +388,9 @@ def test_negative_quantity_is_refused():
 
 def test_item_without_an_amount_next_to_one_with_an_amount():
     items = [
-        {"name": "sůl", "product_id": 1, "price": 10, "package_amount": "1 kg",
+        {"ingredient": "sůl", "product_id": 1, "price": 10, "package_amount": "1 kg",
          "quantity": 10, "unit": "g"},
-        {"name": "soli", "product_id": 1, "price": 10, "package_amount": "1 kg"},
+        {"ingredient": "soli", "product_id": 1, "price": 10, "package_amount": "1 kg"},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
     assert counted(line) == (
@@ -396,8 +400,8 @@ def test_item_without_an_amount_next_to_one_with_an_amount():
 
 def test_items_without_any_amount_share_one_package():
     items = [
-        {"name": "sůl", "product_id": 1, "price": 10, "package_amount": "1 kg"},
-        {"name": "soli", "product_id": 1, "price": 10, "package_amount": "1 kg",
+        {"ingredient": "sůl", "product_id": 1, "price": 10, "package_amount": "1 kg"},
+        {"ingredient": "soli", "product_id": 1, "price": 10, "package_amount": "1 kg",
          "quantity": None},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
@@ -406,11 +410,11 @@ def test_items_without_any_amount_share_one_package():
 
 def test_mixed_units_and_a_missing_amount_keep_both_notes():
     items = [
-        {"name": "olej", "product_id": 1, "price": 50, "package_amount": "1 l",
+        {"ingredient": "olej", "product_id": 1, "price": 50, "package_amount": "1 l",
          "quantity": 100, "unit": "ml"},
-        {"name": "oleje", "product_id": 1, "price": 50, "package_amount": "1 l",
+        {"ingredient": "oleje", "product_id": 1, "price": 50, "package_amount": "1 l",
          "quantity": 2, "unit": "lžíce"},
-        {"name": "olivový olej", "product_id": 1, "price": 50, "package_amount": "1 l"},
+        {"ingredient": "olivový olej", "product_id": 1, "price": 50, "package_amount": "1 l"},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
     assert counted(line) == (
@@ -425,10 +429,59 @@ def test_mixed_units_and_a_missing_amount_keep_both_notes():
 
 def test_same_size_with_float_noise_is_no_conflict():
     items = [
-        {"name": "a", "product_id": 1, "price": 10, "package_amount": "2,01 kg",
+        {"ingredient": "a", "product_id": 1, "price": 10, "package_amount": "2,01 kg",
          "quantity": 100, "unit": "g"},
-        {"name": "b", "product_id": 1, "price": 10, "package_amount": "2010 g",
+        {"ingredient": "b", "product_id": 1, "price": 10, "package_amount": "2010 g",
          "quantity": 100, "unit": "g"},
     ]
     line = plan_purchase(items, minimum_order=0)["lines"][0]
     assert counted(line) == (1, True, "", "1810 g")
+
+
+BOUGHT = ("ingredients", "product_id", "product_name", "package_amount")
+
+
+def test_a_line_carries_what_record_purchase_needs():
+    items = [
+        {"ingredient": "cibule", "product_id": 1, "price": 10, "package_amount": " 1 kg ",
+         "quantity": 200, "unit": "g"},
+        {"ingredient": "žlutá cibule", "product_id": 1, "price": 10, "package_amount": "1 kg",
+         "product_name": "Cibule žlutá, síť", "quantity": 100, "unit": "g"},
+        {"ingredient": "másla", "productId": 2, "price": 50, "package_amount": "250 g",
+         "quantity": 50, "unit": "g"},
+    ]
+    onion, butter = plan_purchase(items, minimum_order=0)["lines"]
+    assert {key: onion[key] for key in BOUGHT} == {
+        "ingredients": ["cibule", "žlutá cibule"], "product_id": 1,
+        "product_name": "Cibule žlutá, síť", "package_amount": "1 kg",
+    }
+    assert {key: butter[key] for key in BOUGHT} == {
+        "ingredients": ["másla"], "product_id": 2, "product_name": "", "package_amount": "250 g",
+    }
+
+
+def test_a_bought_line_gives_one_entry_per_ingredient():
+    line = {"ingredients": ["cibule", "žlutá cibule"], "productId": 1,
+            "product_name": "Cibule žlutá, síť", "package_amount": "1 kg", "packages": 1}
+    assert bought_products([line]) == [
+        {"ingredient": "cibule", "product_id": 1, "product_name": "Cibule žlutá, síť",
+         "package_amount": "1 kg"},
+        {"ingredient": "žlutá cibule", "product_id": 1, "product_name": "Cibule žlutá, síť",
+         "package_amount": "1 kg"},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("product", "message"),
+    [
+        ({"ingredients": ["x"], "product_name": "X"},
+         'product 2 ("X") has no product_id or productId'),
+        ({"ingredients": [], "product_id": 3, "product_name": "X"},
+         'product 2 ("X") has no ingredients'),
+    ],
+)
+def test_a_bought_product_without_id_or_ingredients_is_named(product, message):
+    good = {"ingredients": ["y"], "product_id": 1, "product_name": "Y"}
+    with pytest.raises(PurchasePlanError) as error:
+        bought_products([good, product])
+    assert str(error.value) == message
