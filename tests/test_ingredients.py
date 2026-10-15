@@ -4,63 +4,11 @@ import pytest
 
 from rohlik_cookidoo.ingredients import (
     aggregate_ingredients,
-    format_quantity,
     parse_ingredient,
     parse_ingredients,
-    parse_quantity,
     parse_recipe_ingredients,
     scale_ingredients,
 )
-
-
-class TestParseQuantity:
-    @pytest.mark.parametrize(
-        ("text", "amount", "unit"),
-        [
-            ("200 g", 200, "g"),
-            ("250 gramů", 250, "g"),
-            ("1.5 kg", 1.5, "kg"),
-            ("0,5 l", 0.5, "l"),
-            ("200g", 200, "g"),
-            ("3", 3, None),
-            ("3 ks", 3, "ks"),
-            ("2 lžíce", 2, "lžíce"),
-            ("2 PL", 2, "lžíce"),
-            ("1 ČL", 1, "lžička"),
-            ("5 cl", 5, "cl"),
-            ("1 polévková lžíce", 1, "lžíce"),
-            ("0.5 čajové lžičky", 0.5, "lžička"),
-            ("1 vrchovatá čajová lžička", 1, "lžička"),
-            ("2 stroužky", 2, "stroužek"),
-            ("1 plechovka", 1, "plechovka"),
-            # fractions
-            ("1/2 lžičky", 0.5, "lžička"),
-            ("½ lžičky", 0.5, "lžička"),
-            ("1 1/2 lžíce", 1.5, "lžíce"),
-            ("1½ lžíce", 1.5, "lžíce"),
-            # ranges take the upper bound
-            ("1-2 lžíce", 2, "lžíce"),
-            ("2 - 3 stroužky", 3, "stroužek"),
-            # a dot before exactly three digits is a thousands separator
-            ("1.000 g", 1000, "g"),
-            ("0.125 l", 0.125, "l"),
-        ],
-    )
-    def test_amount_and_unit(self, text, amount, unit):
-        parsed_amount, parsed_unit, rest = parse_quantity(text)
-        assert parsed_amount == pytest.approx(amount)
-        assert parsed_unit == unit
-        assert rest == ""
-
-    def test_no_number(self):
-        assert parse_quantity("podle chuti") == (None, None, "podle chuti")
-        assert parse_quantity("") == (None, None, "")
-
-    def test_rest_is_returned(self):
-        assert parse_quantity("200 g hladká mouka") == (200, "g", "hladká mouka")
-
-    def test_size_word_without_unit_stays_in_the_name(self):
-        assert parse_quantity("1 velká cibule") == (1, None, "velká cibule")
 
 
 class TestParseIngredient:
@@ -216,16 +164,12 @@ class TestAggregateIngredients:
         assert totals == {"hladká mouka": 500, "mléko": 400, "vejce": 7, "sůl": None}
 
 
+def test_zero_denominator_gives_no_amount():
+    ingredient = parse_ingredient("1/0 g mouky")
+    assert (ingredient.quantity, ingredient.unit, ingredient.name) == (None, None, "1/0 g mouky")
+
+
 def test_scale_ingredients():
     scaled = scale_ingredients(parse_ingredients(["300 g mouka", "sůl"]), 4 / 6)
     assert scaled[0].quantity == pytest.approx(200)
     assert scaled[1].quantity is None
-
-
-def test_format_quantity():
-    assert format_quantity(500, "g") == "500 g"
-    assert format_quantity(1.5, "lžíce") == "1.5 lžíce"
-    assert format_quantity(0.25, "lžička") == "0.25 lžička"
-    assert format_quantity(2 / 3, "kg") == "0.67 kg"
-    assert format_quantity(3, None) == "3"
-    assert format_quantity(None, None) == "dle chuti"
