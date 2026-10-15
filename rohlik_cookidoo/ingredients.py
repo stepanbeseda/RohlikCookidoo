@@ -8,7 +8,7 @@ ingredient across recipes. Numbers and units are read by `rohlik_cookidoo.amount
 from dataclasses import dataclass, field
 
 from rohlik_cookidoo.amount import Amount, format_quantity, parse_amount, split_unit
-from rohlik_cookidoo.text import clean_name, name_key, normalize
+from rohlik_cookidoo.text import Identity, clean_name, identity
 
 
 @dataclass
@@ -113,13 +113,13 @@ def aggregate_ingredients(
     """
     # An ingredient without an amount joins whatever entry already exists for it;
     # until some recipe gives an amount, its entry is filed under the group None.
-    by_name: dict[frozenset[str], list[AggregatedIngredient]] = {}
-    by_group: dict[tuple[frozenset[str], str | None], AggregatedIngredient] = {}
+    by_name: dict[Identity, list[AggregatedIngredient]] = {}
+    by_group: dict[tuple[Identity, str | None], AggregatedIngredient] = {}
     result: list[AggregatedIngredient] = []
 
     for recipe_name, ingredients in recipes_ingredients:
         for ing in ingredients:
-            key = name_key(ing.name) or frozenset({normalize(ing.name)})
+            key = identity(ing.name)
 
             if ing.quantity is None:
                 source = f"{recipe_name} ({format_quantity(None, None)})"

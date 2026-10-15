@@ -7,6 +7,8 @@ Three files in one data directory:
   but runs out ("? máslo"): it is not skipped silently, the user is asked
   first.
 - products.json: which product the user bought last time for an ingredient.
+  An entry is found through the ingredient name stored in it, so it survives
+  changes to the stemming rules; its key is rewritten on every save.
 - preferences.json: free-form shopping preferences ("quality": "bio").
 
 The pantry file is PANTRY_PATH, or pantry.txt in DATA_DIR, or pantry.txt in
@@ -25,7 +27,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from rohlik_cookidoo.text import clean_name, name_key
+from rohlik_cookidoo.text import Identity, Relation, clean_name, identity
 
 HAVE = "have"
 CHECK = "check"
@@ -66,32 +68,46 @@ def _match(name: str, items: list[str]) -> tuple[str | None, str | None]:
     """Compare an ingredient with the pantry lines.
 
     Returns (status, pantry item):
-    - ("have", item): the same thing, in any case form ("másla" vs "máslo")
-    - ("ask", item): the same thing, but the pantry line is marked with "?"
-    - ("check", item): the pantry has something more general or more specific
+    - ("have", item): the same ingredient ("másla" vs "máslo")
+    - ("ask", item): the same ingredient, but the pantry line is marked with "?"
+    - ("check", item): the pantry has something broader or narrower
       ("sezamový olej" vs "olej"); it may or may not be the right product
     - (None, None): not in the pantry
     """
-    key = name_key(name)
-    if not key:
-        return None, None
-
+    wanted = identity(name)
     maybe = None
     for line in items:
         item, ask = _split_marker(line)
-        item_key = name_key(item)
-        if not item_key:
-            continue
-        if item_key == key:
+        relation = wanted.relation(identity(item))
+        if relation is Relation.SAME:
             return (ASK if ask else HAVE), item
-        if maybe is None and (item_key < key or key < item_key):
+        if maybe is None and relation in (Relation.BROADER, Relation.NARROWER):
             maybe = item
     return (CHECK, maybe) if maybe else (None, None)
 
 
-def _product_key(ingredient: str) -> str:
-    """Key shared by all case forms of an ingredient name."""
-    return " ".join(sorted(name_key(ingredient)))
+def _is_entry(entry: Any) -> bool:
+    """A products.json entry that names its ingredient."""
+    return isinstance(entry, dict) and isinstance(entry.get("ingredient"), str)
+
+
+def _by_identity(stored: dict) -> dict[Identity, dict]:
+    """The stored entries by the identity of their stored ingredient name.
+
+    The dict key in the file is not used, so entries survive changes to the
+    stemming rules. Of several entries for one ingredient the latest wins.
+    """
+    found: dict[Identity, dict] = {}
+    for entry in stored.values():
+        if not _is_entry(entry):
+            continue
+        key = identity(entry["ingredient"])
+        if not key:
+            continue
+        current = found.get(key)
+        if current is None or str(entry.get("updated", "")) > str(current.get("updated", "")):
+            found[key] = entry
+    return found
 
 
 def _write_atomic(path: Path, text: str) -> None:
@@ -158,10 +174,11 @@ class Household:
         lines = list(original)
 
         def drop(item: str) -> None:
-            key = name_key(_split_marker(item)[0])
+            key = identity(_split_marker(item)[0])
             lines[:] = [
                 line for line in lines
-                if not (_is_item(line) and name_key(_split_marker(line)[0]) == key)
+                if not (_is_item(line)
+                        and key.relation(identity(_split_marker(line)[0])) is Relation.SAME)
             ]
 
         def add(item: str, ask: bool) -> None:
@@ -192,30 +209,32 @@ class Household:
     def look_up(self, names: Iterable[str]) -> list[Lookup]:
         """Answer, for each name in order, whether it is at home and what the user usually buys."""
         items = [line.strip() for line in self._lines() if _is_item(line)]
-        products = self._load_json(self.products_file)
+        products = _by_identity(self._load_json(self.products_file))
         found = []
         for name in names:
             status, item = _match(name, items)
-            found.append(Lookup(name, status, item, products.get(_product_key(name))))
+            found.append(Lookup(name, status, item, products.get(identity(name))))
         return found
 
     # Usual products
 
     def usual_products(self) -> list[dict]:
         """All remembered products, sorted by ingredient."""
-        products = self._load_json(self.products_file)
+        products = _by_identity(self._load_json(self.products_file))
         return sorted(products.values(), key=lambda entry: entry["ingredient"])
 
     def remember_products(self, products: Iterable[Mapping[str, Any]]) -> list[dict]:
         """Store the product chosen for each ingredient; returns the stored entries.
 
-        Names without letters are skipped. The file is written once, and only
+        A new entry replaces the one stored for the same ingredient. Names
+        without an identity are skipped. The file is written once, and only
         when something was stored.
         """
         stored = self._load_json(self.products_file)
+        found = _by_identity(stored)
         remembered = []
         for product in products:
-            key = _product_key(product["ingredient"])
+            key = identity(product["ingredient"])
             if not key:
                 continue
             entry = {
@@ -225,19 +244,29 @@ class Household:
                 "package_amount": product.get("package_amount", ""),
                 "updated": date.today().isoformat(),
             }
-            stored[key] = entry
+            found[key] = entry
             remembered.append(entry)
         if remembered:
-            self._save_json(self.products_file, stored)
+            self._save_products(stored, found)
         return remembered
 
     def forget_product(self, ingredient: str) -> bool:
         """Drop the remembered product for an ingredient. Returns False if none."""
         stored = self._load_json(self.products_file)
-        if stored.pop(_product_key(ingredient), None) is None:
+        found = _by_identity(stored)
+        if found.pop(identity(ingredient), None) is None:
             return False
-        self._save_json(self.products_file, stored)
+        self._save_products(stored, found)
         return True
+
+    def _save_products(self, stored: dict, found: dict[Identity, dict]) -> None:
+        """Write products.json with each entry under the key of its stored ingredient name.
+
+        Entries without an ingredient name keep their key unless an entry takes it.
+        """
+        kept = {key: entry for key, entry in stored.items() if not _is_entry(entry)
+                or not identity(entry["ingredient"])}
+        self._save_json(self.products_file, {**kept, **{str(k): e for k, e in found.items()}})
 
     # Preferences
 
