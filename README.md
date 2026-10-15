@@ -183,6 +183,8 @@ uv sync --extra dev
 uv run ruff check . && uv run pytest
 ```
 
+Bez Pythonu stačí Docker: `scripts/check.sh` spustí totéž v dočasném kontejneru.
+
 Kód je v `rohlik_cookidoo/`, vstupní bod je `server.py`. Testy, lint a sestavení Docker obrazu běží na GitHubu při každém pull requestu.
 
 ## Licence

@@ -25,6 +25,9 @@ build/
 # Claude Code (local settings and worktrees)
 .claude/
 
+# MAO run files
+.mao/log/
+
 # OS
 .DS_Store
 Thumbs.db
