@@ -182,7 +182,7 @@ def _shopping_list(portions: list[_Portion], household: Household) -> dict:
     for item, found in zip(items, household.look_up(i.name for i in items), strict=True):
         status, pantry_item = found.pantry_status, found.pantry_item
         entry = {
-            "name": item.name,
+            "ingredient": item.name,
             "quantity": item.total_quantity,
             "unit": item.unit,
             "display": format_quantity(item.total_quantity, item.unit),

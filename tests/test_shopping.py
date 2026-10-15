@@ -93,8 +93,12 @@ def names(items):
     return [item["name"] for item in items]
 
 
+def ingredients(items):
+    return [item["ingredient"] for item in items]
+
+
 def amounts(items):
-    return [(item["name"], item["quantity"]) for item in items]
+    return [(item["ingredient"], item["quantity"]) for item in items]
 
 
 def test_the_week_plan_is_the_default_source(household):
@@ -105,10 +109,10 @@ def test_the_week_plan_is_the_default_source(household):
     assert list(result) == FIELDS_WEEK
     assert (result["source"], result["week_start"]) == ("week", "2026-10-12")
     assert names(result["recipes"]) == ["Zelný hrnec", "Polévka"]
-    assert [(i["name"], i["quantity"], i["unit"]) for i in result["to_buy"]] == [
+    assert [(i["ingredient"], i["quantity"], i["unit"]) for i in result["to_buy"]] == [
         ("cibule", 300, "g"), ("másla", 50, "g"),
     ]
-    assert names(result["at_home"]) == ["soli"]
+    assert ingredients(result["at_home"]) == ["soli"]
     assert result["pantry_setup_needed"] is False
     assert result["failed"] == []
     assert source.calls[0] == ("week", 0)
@@ -144,7 +148,7 @@ def test_a_recipe_from_the_web_needs_no_recipe_source(household):
     ]}
     result = shop(household, source, recipes=[recipe])
     assert source.calls == []
-    assert [(i["name"], i["display"]) for i in result["to_buy"]] == [
+    assert [(i["ingredient"], i["display"]) for i in result["to_buy"]] == [
         ("hladká mouka", "200 g"), ("vejce", "2 ks"),
     ]
 
@@ -165,7 +169,7 @@ def test_a_recipe_that_cannot_be_loaded_is_reported_as_failed(household, error, 
     source = FakeSource(errors={"r404": error})
     result = shop(household, source, recipe_ids=["r1", "r404"])
     assert names(result["recipes"]) == ["Zelný hrnec"]
-    assert names(result["to_buy"]) == ["cibule", "másla"]
+    assert ingredients(result["to_buy"]) == ["cibule", "másla"]
     assert result["failed"] == [{"id": "r404", "error": expected}]
 
 
@@ -204,14 +208,14 @@ def test_shopping_list_groups_by_pantry(household):
     household.update_pantry(always_at_home=["sůl", "máslo", "olej"])
     result = shop(household, recipes=RECIPES)
 
-    assert [(i["name"], i["quantity"], i["unit"]) for i in result["to_buy"]] == [
+    assert [(i["ingredient"], i["quantity"], i["unit"]) for i in result["to_buy"]] == [
         ("cibule", 300, "g")
     ]
     assert result["to_buy"][0]["sources"] == ["Zelný hrnec (200 g)", "Polévka (0.1 kg)"]
     assert [
-        (i["name"], i["pantry_item"], i["check_reason"]) for i in result["check_at_home"]
+        (i["ingredient"], i["pantry_item"], i["check_reason"]) for i in result["check_at_home"]
     ] == [("sezamového oleje", "olej", "similar_item")]
-    assert {i["name"]: i["pantry_item"] for i in result["at_home"]} == {
+    assert {i["ingredient"]: i["pantry_item"] for i in result["at_home"]} == {
         "másla": "máslo", "soli": "sůl",
     }
 
@@ -241,10 +245,10 @@ def test_ask_first_items_go_to_check_with_a_reason(household):
     household.update_pantry(always_at_home=["sůl"], ask_first=["máslo"])
     result = shop(household, recipes=RECIPES)
     asked = [i for i in result["check_at_home"] if i["check_reason"] == "ask_user"]
-    assert [(i["name"], i["quantity"], i["pantry_item"]) for i in asked] == [
+    assert [(i["ingredient"], i["quantity"], i["pantry_item"]) for i in asked] == [
         ("másla", 50, "máslo")
     ]
-    assert "másla" not in names(result["to_buy"] + result["at_home"])
+    assert "másla" not in ingredients(result["to_buy"] + result["at_home"])
 
 
 def test_usual_product_is_attached_in_any_case_form(household):
@@ -258,7 +262,7 @@ def test_usual_product_is_attached_in_any_case_form(household):
     result = shop(household, recipes=RECIPES)
 
     onion = result["to_buy"][0]
-    assert (onion["name"], onion["usual_product"]["product_id"]) == ("cibule", 1298821)
+    assert (onion["ingredient"], onion["usual_product"]["product_id"]) == ("cibule", 1298821)
     # nothing is attached to what is at home, and nothing is invented
     assert all("usual_product" not in i for i in result["at_home"])
     assert all("usual_product" not in i for i in result["to_buy"][1:])
@@ -327,9 +331,11 @@ def test_preparation_only_name_is_one_ingredient(household):
         {"name": "B", "ingredients": [{"name": "čerstvé", "quantity": "2"}]},
     ]
     [line] = shop(household, recipes=recipes)["to_buy"]
-    assert (line["name"], line["quantity"], line["usual_product"]["product_id"]) == (
+    assert (line["ingredient"], line["quantity"], line["usual_product"]["product_id"]) == (
         "čerstvý", 3, 7)
     household.update_pantry(always_at_home=["čerstvé"])
     result = shop(household, recipes=recipes)
-    assert [(i["name"], i["pantry_item"]) for i in result["at_home"]] == [("čerstvý", "čerstvé")]
+    assert [(i["ingredient"], i["pantry_item"]) for i in result["at_home"]] == [
+        ("čerstvý", "čerstvé")
+    ]
     assert result["to_buy"] == result["check_at_home"] == []
