@@ -19,6 +19,14 @@ finding. Add items from repeated findings.
   order, network, the real data directory).
 - [ ] Nothing was silently weakened: every deleted test has a "new home"
   line in the PR body.
+- [ ] Every negative grep in the spec ("must be empty") was run against the
+  tree the spec builds (its new tests and files included), not just against
+  `main`; its positive hit on `main` is shown.
+- [ ] Counts and file lists in the spec (test counts, prototype files) were
+  measured on the base the implementer starts from, after every dependency
+  merged.
+- [ ] A new import in a module or test does not shadow a local or loop
+  variable (ruff F402); the check ran with the new import in place.
 - [ ] Time: fixed dates and relative dates in one test file are a calendar
   bomb — freeze the whole file or compute everything from `date.today()`.
 
