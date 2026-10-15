@@ -13,11 +13,11 @@ import logging
 from dataclasses import dataclass
 from typing import NotRequired, Protocol, TypedDict
 
+from rohlik_cookidoo.amount import format_quantity
 from rohlik_cookidoo.cookidoo import CookidooError
 from rohlik_cookidoo.household import ASK, CHECK, HAVE, Household
 from rohlik_cookidoo.ingredients import (
     aggregate_ingredients,
-    format_quantity,
     parse_recipe_ingredients,
     scale_ingredients,
 )
