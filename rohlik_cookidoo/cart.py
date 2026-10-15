@@ -3,25 +3,16 @@
 `plan_purchase` is the module's interface. It groups the wanted items by product once
 and, for each product, works out the package count and leftover, compares it with the
 cart and prices what is missing; then it adds up the totals against the minimum order.
-Package sizes as the shop writes them ("4 x 125 g", "cca 0,85 kg") are parsed here too.
+Package sizes and amounts are read and compared by `rohlik_cookidoo.amount`.
 """
 
 import math
-import re
 
-from rohlik_cookidoo.ingredients import format_quantity, to_base_unit
+from rohlik_cookidoo.amount import Amount, canonical_unit, format_quantity, parse_package, total
 
 # Fallback only: Rohlik.cz minimum order for home delivery in October 2026.
 # The official Rohlik MCP reports the current value in the cart.
 DEFAULT_MINIMUM_ORDER = 749.0
-
-_BASE_UNIT = {"weight": "g", "volume": "ml", "count": "ks"}
-
-_NUM = r"\d+(?:[.,]\d+)?"
-# "500 g", "1,98 l", "cca 130 g", "4 x 125 g", "6×0,5 l", "10 ks"
-_PACKAGE = re.compile(
-    rf"(?:(\d+)\s*[x×]\s*)?({_NUM})\s*(kg|mg|g|ml|dl|cl|l|ks)\b", re.IGNORECASE
-)
 
 
 class PurchasePlanError(ValueError):
@@ -39,12 +30,14 @@ def plan_purchase(
     Args:
         items: one per ingredient: {"name", "product_id", "package_amount",
             "price", "quantity", "unit"}. `productId` is accepted in place of
-            `product_id`. An explicit "packages" (0 included) is used as given;
-            the other items of that product are counted. Ingredients sharing a
-            product are combined before rounding up, so 200 g + 300 g from a
-            500 g package is one package. They should agree on `price` and
-            `package_amount`; otherwise the line uses the package size of the
-            first item and the first price given, and is marked inexact.
+            `product_id`; `unit` may be any unit word ("g", "gramů", "kusy").
+            A `quantity` of 0 needs no package. An explicit "packages" (0
+            included) is used as given; the other items of that product are
+            counted. Ingredients sharing a product are combined before rounding
+            up, so 200 g + 300 g from a 500 g package is one package. They
+            should agree on `price` and `package_amount`; otherwise the line
+            uses the package size of the first item and the first price given,
+            and is marked inexact.
         cart: current cart lines: {"product_id", "quantity"}; a missing
             quantity counts as one.
         cart_total: current cart value.
@@ -53,7 +46,7 @@ def plan_purchase(
     Returns the lines (package count, what is already in the cart, what to add,
     cost, `exact`, `note` and `leftover`), `to_add` ready to pass to an
     add-to-cart tool, and the totals. Raises PurchasePlanError naming an item or
-    cart line without a product ID, or an item with negative `packages`.
+    cart line without a product ID, or an item with negative `packages` or `quantity`.
     """
     groups: dict[str, list[dict]] = {}
     for index, item in enumerate(items, start=1):
@@ -62,6 +55,9 @@ def plan_purchase(
         packages = item.get("packages")
         if packages is not None and packages < 0:
             raise PurchasePlanError(f"{label} has packages {packages}; use 0 or more")
+        quantity = item.get("quantity")
+        if quantity is not None and quantity < 0:
+            raise PurchasePlanError(f"{label} has quantity {quantity}; use 0 or more")
         groups.setdefault(key, []).append(item)
 
     in_cart: dict[str, float] = {}
@@ -132,7 +128,7 @@ def _agreed(group: list[dict]) -> tuple[str, float, list[str]]:
     for item in group:
         text = (item.get("package_amount") or "").strip()
         if text:
-            size = _parse_package_amount(text) or " ".join(text.lower().split())
+            size = parse_package(text) or " ".join(text.lower().split())
             sizes.setdefault(size, text)
     prices: dict[float, float] = {}
     for item in group:
@@ -168,74 +164,69 @@ def _count_packages(group: list[dict], package_amount: str) -> dict:
 
 
 def _count_needed(counted: list[dict], package_amount: str) -> dict:
-    """Packages for items without explicit `packages`, summed before rounding."""
-    if len(counted) == 1:
-        item = counted[0]
-        return _packages_needed(item.get("quantity"), item.get("unit"), package_amount)
+    """Packages for items without explicit `packages`, summed before rounding.
 
-    amounts = [
-        to_base_unit(i["quantity"], i.get("unit")) for i in counted if i.get("quantity") is not None
-    ]
-    if len(amounts) == len(counted) and len({kind for _, _, kind in amounts}) == 1:
-        total = sum(amount for amount, _, _ in amounts)
-        return _packages_needed(total, amounts[0][1], package_amount)
-
-    parts = [_packages_needed(i.get("quantity"), i.get("unit"), package_amount) for i in counted]
-    return {
-        "packages": sum(part["packages"] for part in parts),
-        "exact": False,
-        "note": "amounts in different units were counted separately",
-        "leftover": None,
-    }
-
-
-def _parse_package_amount(text: str) -> tuple[float, str] | None:
-    """Parse a product's package size into (amount, group).
-
-    The group is "weight" (grams), "volume" (millilitres) or "count" (pieces).
-    Returns None when the text has no recognisable size.
+    Items without an amount add no package of their own when others have one; the
+    count is then marked inexact. Amounts of different unit groups are counted
+    one by one.
     """
-    match = _PACKAGE.search(text or "")
-    if not match:
-        return None
-    multiplier = int(match[1]) if match[1] else 1
-    amount = float(match[2].replace(",", "."))
-    base, _, group = to_base_unit(amount, match[3].lower())
-    return multiplier * base, group
+    amounts = [
+        Amount(item["quantity"], canonical_unit(item.get("unit")))
+        for item in counted
+        if item.get("quantity") is not None
+    ]
+    if not amounts:
+        return _packages_needed(None, package_amount)
+
+    together = total(amounts)
+    if together is not None:
+        part = _packages_needed(together, package_amount)
+    else:
+        parts = [_packages_needed(amount, package_amount) for amount in amounts]
+        part = {
+            "packages": sum(p["packages"] for p in parts),
+            "exact": False,
+            "note": "amounts in different units were counted separately",
+            "leftover": None,
+        }
+    if len(amounts) < len(counted):
+        notes = [part["note"], "some items give no amount; only the others were counted"]
+        part = {**part, "exact": False, "note": "; ".join(n for n in notes if n),
+                "leftover": None}
+    return part
 
 
-def _packages_needed(
-    quantity: float | None, unit: str | None, package_amount: str
-) -> dict:
-    """Estimate how many packages cover the required quantity.
+def _packages_needed(needed: Amount | None, package_amount: str) -> dict:
+    """Estimate how many packages cover the required amount.
 
     Returns {"packages": int, "exact": bool, "note": str, "leftover": str | None}.
-    `exact` is False when the result is a fallback of one package or relies on
-    treating 1 g as 1 ml (fine for water and milk, off for oil, honey or
-    flour). `leftover` is what remains after cooking, e.g. "300 g", or None
+    `exact` is False when the result is a fallback of one package or an estimate
+    between weight and volume (the note says which). An amount of zero needs no
+    package. `leftover` is what remains after cooking, e.g. "300 g", or None
     when it cannot be worked out.
     """
     def fallback(note: str) -> dict:
         return {"packages": 1, "exact": False, "note": note, "leftover": None}
 
-    if quantity is None:
+    if needed is None:
         return fallback("recipe gives no amount")
+    if needed.value == 0:
+        return {"packages": 0, "exact": True, "note": "", "leftover": None}
 
-    package = _parse_package_amount(package_amount)
+    package = parse_package(package_amount)
     if package is None:
         return fallback("package size not recognised")
 
-    package_base, package_group = package
-    needed_base, _, needed_group = to_base_unit(quantity, unit)
-    same_group = needed_group == package_group
-    if not same_group and {needed_group, package_group} != {"weight", "volume"}:
-        return fallback(f"cannot compare {needed_group} with {package_group}")
+    measured = needed.in_units_of(package)
+    if measured is None:
+        return fallback(f"cannot compare {needed.group} with {package.group}")
 
-    packages = max(1, math.ceil(needed_base / package_base - 1e-9))
-    left = max(0.0, packages * package_base - needed_base)
+    value, note = measured
+    packages = max(1, math.ceil(value / package.value - 1e-9))
+    left = max(0.0, packages * package.value - value)
     return {
         "packages": packages,
-        "exact": same_group,
-        "note": "" if same_group else "assumed 1 g = 1 ml",
-        "leftover": format_quantity(round(left, 2), _BASE_UNIT[package_group]),
+        "exact": not note,
+        "note": note,
+        "leftover": format_quantity(round(left, 2), package.unit),
     }

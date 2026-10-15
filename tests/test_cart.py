@@ -23,24 +23,6 @@ def counted(line):
     return line["packages"], line["exact"], line["note"], line["leftover"]
 
 
-@pytest.mark.parametrize(
-    ("package", "quantity", "unit", "leftover"),
-    [
-        ("500 g", 100, "g", "400 g"),
-        ("1 kg", 100, "g", "900 g"),
-        ("1,98 l", 1, "l", "980 ml"),
-        ("cca 130 g", 100, "g", "30 g"),
-        ("cca 0,85 kg", 100, "g", "750 g"),
-        ("4 x 125 g", 100, "g", "400 g"),
-        ("6×0,5 l", 1, "l", "2000 ml"),
-        ("10 ks", 4, None, "6 ks"),
-    ],
-)
-def test_package_size_is_read(package, quantity, unit, leftover):
-    # The parsed size shows in what is left of one package after cooking.
-    assert counted(plan_one(package, quantity, unit)) == (1, True, "", leftover)
-
-
 @pytest.mark.parametrize("package", ["", "velké balení"])
 def test_unrecognised_package_size_falls_back_to_one_package(package):
     line = plan_one(package, 200, "g")
@@ -359,3 +341,89 @@ def test_price_zero_is_a_price():
     line = plan_purchase(items, minimum_order=0)["lines"][0]
     assert (line["cost"], line["exact"]) == (0, False)
     assert line["note"] == "items for this product give different price (0, 10); priced at 0"
+
+
+@pytest.mark.parametrize(
+    ("package", "quantity", "unit", "packages", "leftover"),
+    [
+        ("1.000 g", 500, "g", 1, "500 g"),
+        ("2 kusy", 3, None, 2, "1 ks"),
+        ("1 litr", 1500, "ml", 2, "500 ml"),
+        ("500 gramů", 200, "g", 1, "300 g"),
+    ],
+)
+def test_package_size_reads_like_a_recipe_amount(package, quantity, unit, packages, leftover):
+    assert counted(plan_one(package, quantity, unit)) == (packages, True, "", leftover)
+
+
+def test_unit_words_of_an_item_are_understood():
+    assert counted(plan_one("1 kg", 300, "gramů")) == (1, True, "", "700 g")
+    assert counted(plan_one("10 ks", 3, "kusy")) == (1, True, "", "7 ks")
+
+
+def test_zero_quantity_buys_nothing():
+    line = plan_one("1 kg", 0, "g")
+    assert counted(line) == (0, True, "", None)
+    assert line["add"] == 0
+
+
+def test_zero_package_size_is_not_a_size():
+    assert counted(plan_one("0 g", 5, "g")) == (1, False, "package size not recognised", None)
+
+
+def test_negative_quantity_is_refused():
+    with pytest.raises(PurchasePlanError) as error:
+        plan_one("1 kg", -200, "g")
+    assert str(error.value) == 'item 1 ("x") has quantity -200; use 0 or more'
+
+
+def test_item_without_an_amount_next_to_one_with_an_amount():
+    items = [
+        {"name": "sůl", "product_id": 1, "price": 10, "package_amount": "1 kg",
+         "quantity": 10, "unit": "g"},
+        {"name": "soli", "product_id": 1, "price": 10, "package_amount": "1 kg"},
+    ]
+    line = plan_purchase(items, minimum_order=0)["lines"][0]
+    assert counted(line) == (
+        1, False, "some items give no amount; only the others were counted", None,
+    )
+
+
+def test_items_without_any_amount_share_one_package():
+    items = [
+        {"name": "sůl", "product_id": 1, "price": 10, "package_amount": "1 kg"},
+        {"name": "soli", "product_id": 1, "price": 10, "package_amount": "1 kg",
+         "quantity": None},
+    ]
+    line = plan_purchase(items, minimum_order=0)["lines"][0]
+    assert counted(line) == (1, False, "recipe gives no amount", None)
+
+
+def test_mixed_units_and_a_missing_amount_keep_both_notes():
+    items = [
+        {"name": "olej", "product_id": 1, "price": 50, "package_amount": "1 l",
+         "quantity": 100, "unit": "ml"},
+        {"name": "oleje", "product_id": 1, "price": 50, "package_amount": "1 l",
+         "quantity": 2, "unit": "lžíce"},
+        {"name": "olivový olej", "product_id": 1, "price": 50, "package_amount": "1 l"},
+    ]
+    line = plan_purchase(items, minimum_order=0)["lines"][0]
+    assert counted(line) == (
+        2, False,
+        (
+            "amounts in different units were counted separately;"
+            " some items give no amount; only the others were counted"
+        ),
+        None,
+    )
+
+
+def test_same_size_with_float_noise_is_no_conflict():
+    items = [
+        {"name": "a", "product_id": 1, "price": 10, "package_amount": "2,01 kg",
+         "quantity": 100, "unit": "g"},
+        {"name": "b", "product_id": 1, "price": 10, "package_amount": "2010 g",
+         "quantity": 100, "unit": "g"},
+    ]
+    line = plan_purchase(items, minimum_order=0)["lines"][0]
+    assert counted(line) == (1, True, "", "1810 g")
