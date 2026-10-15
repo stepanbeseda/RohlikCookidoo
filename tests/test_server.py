@@ -95,7 +95,7 @@ def test_prepare_shopping_passes_every_argument(fake, home):
     assert [(r["name"], r["servings"]) for r in result["recipes"]] == [
         ("Zelný hrnec", 3), ("Palačinky", 3),
     ]
-    assert ("hladká mouka", 150) in [(i["name"], i["quantity"]) for i in result["to_buy"]]
+    assert ("hladká mouka", 150) in [(i["ingredient"], i["quantity"]) for i in result["to_buy"]]
     assert result["pantry_setup_needed"] is False
     assert fake.week_offsets == []
 
@@ -146,9 +146,9 @@ def test_questionnaire_has_steps_categories_and_current_state():
 
 def test_record_purchase_and_forget_product(fake):
     result = call("record_purchase", {"products": [
-        {"ingredient": "cibule", "product_id": 1298821, "product_name": "Cibule žlutá, síť",
+        {"ingredients": ["cibule"], "product_id": 1298821, "product_name": "Cibule žlutá, síť",
          "package_amount": "1 kg"},
-        {"ingredient": "másla", "product_id": 1462148, "product_name": "Miil Máslo 82%"},
+        {"ingredients": ["másla"], "product_id": 1462148, "product_name": "Miil Máslo 82%"},
     ]})
     assert len(result["remembered"]) == 2
     usual = call("get_shopping_preferences")["usual_products"]
@@ -159,19 +159,19 @@ def test_record_purchase_and_forget_product(fake):
 
 def test_plan_purchase_tool():
     plan = call("plan_purchase", {
-        "items": [{"name": "cibule", "productId": 1349783, "price": 2.53,
+        "items": [{"ingredient": "cibule", "productId": 1349783, "price": 2.53,
                    "package_amount": "cca 120 g", "quantity": 200, "unit": "g"}],
         "cart": [], "cart_total": 0, "minimum_order": 749,
     })
-    assert plan["to_add"] == [{"product_id": 1349783, "quantity": 2}]
+    assert plan["to_add"] == [{"productId": 1349783, "quantity": 2}]
     assert plan["missing_to_minimum"] == 743.94
 
 
 def test_plan_purchase_tool_names_an_item_without_product_id():
     with pytest.raises(ToolError) as error:
         call("plan_purchase", {"items": [
-            {"name": "máslo", "product_id": 2, "package_amount": "250 g"},
-            {"name": "cibule", "package_amount": "1 kg", "quantity": 1, "unit": "kg"},
+            {"ingredient": "máslo", "product_id": 2, "package_amount": "250 g"},
+            {"ingredient": "cibule", "package_amount": "1 kg", "quantity": 1, "unit": "kg"},
         ]})
     # The whole text: an unmapped ValueError would arrive with a "Error calling tool" prefix.
     assert str(error.value) == 'item 2 ("cibule") has no product_id or productId'
@@ -179,7 +179,7 @@ def test_plan_purchase_tool_names_an_item_without_product_id():
 
 def test_plan_purchase_tool_zero_packages():
     plan = call("plan_purchase", {
-        "items": [{"name": "cibule", "productId": 1349783, "price": 2.53,
+        "items": [{"ingredient": "cibule", "productId": 1349783, "price": 2.53,
                    "package_amount": "cca 120 g", "quantity": 200, "unit": "g",
                    "packages": 0}],
         "minimum_order": 0,
@@ -219,8 +219,104 @@ def test_update_pantry_and_record_purchase_write_each_file_once(home, monkeypatc
 
     replaced.clear()
     call("record_purchase", {"products": [
-        {"ingredient": "cibule", "product_id": 1, "product_name": "Cibule"},
-        {"ingredient": "másla", "product_id": 2, "product_name": "Máslo"},
-        {"ingredient": "mléka", "product_id": 3, "product_name": "Mléko"},
+        {"ingredients": ["cibule", "žluté cibule"], "product_id": 1, "product_name": "Cibule"},
+        {"ingredients": ["másla"], "product_id": 2, "product_name": "Máslo"},
+        {"ingredients": ["mléka"], "product_id": 3, "product_name": "Mléko"},
     ]})
     assert replaced == ["products.json"]
+
+
+# Product data as the model takes it from the Rohlik connector
+ROHLIK = {
+    "cibule": {"productId": 1298821, "product_name": "Cibule žlutá, síť", "price": 29.9,
+               "package_amount": "1 kg"},
+    "žlutá cibule": {"productId": 1298821, "product_name": "Cibule žlutá, síť", "price": 29.9,
+                     "package_amount": "1 kg"},
+    "másla": {"productId": 1462148, "product_name": "Miil Máslo 82%", "price": 54.9,
+              "package_amount": "250 g"},
+}
+SALAD = {"name": "Salát", "ingredients": [{"name": "žlutá cibule", "quantity": "100 g"}]}
+
+
+def test_a_shopping_list_line_goes_through_all_three_tools_unchanged(fake):
+    shopping = call("prepare_shopping", {"recipe_ids": ["r1"], "recipes": [SALAD]})
+    items = [{**entry, **ROHLIK[entry["ingredient"]]} for entry in shopping["to_buy"]]
+    plan = call("plan_purchase", {"items": items, "cart": [], "cart_total": 0})
+    assert [line["ingredients"] for line in plan["lines"]] == [
+        ["cibule", "žlutá cibule"], ["másla"],
+    ]
+    assert plan["to_add"] == [
+        {"productId": 1298821, "quantity": 1}, {"productId": 1462148, "quantity": 1},
+    ]
+
+    call("record_purchase", {"products": plan["lines"]})
+
+    usual = call("get_shopping_preferences")["usual_products"]
+    assert [(p["ingredient"], p["product_id"], p["product_name"], p["package_amount"])
+            for p in usual] == [
+        ("cibule", 1298821, "Cibule žlutá, síť", "1 kg"),
+        ("másla", 1462148, "Miil Máslo 82%", "250 g"),
+        ("žlutá cibule", 1298821, "Cibule žlutá, síť", "1 kg"),
+    ]
+    again = call("prepare_shopping", {"recipe_ids": ["r1"], "recipes": [SALAD]})
+    assert {e["ingredient"]: e["usual_product"]["product_id"] for e in again["to_buy"]} == {
+        "cibule": 1298821, "másla": 1462148, "žlutá cibule": 1298821,
+    }
+
+
+def test_two_ingredients_of_one_product_are_both_remembered():
+    plan = call("plan_purchase", {"items": [
+        {"ingredient": "cibule", "product_id": 1298821, "product_name": "Cibule žlutá, síť",
+         "price": 29.9, "package_amount": "1 kg", "quantity": 200, "unit": "g"},
+        {"ingredient": "žlutá cibule", "product_id": 1298821, "product_name": "Cibule žlutá, síť",
+         "price": 29.9, "package_amount": "1 kg", "quantity": 100, "unit": "g"},
+    ], "minimum_order": 0})
+    [line] = plan["lines"]
+    remembered = call("record_purchase", {"products": [line]})["remembered"]
+    assert [entry["ingredient"] for entry in remembered] == ["cibule", "žlutá cibule"]
+    usual = call("get_shopping_preferences")["usual_products"]
+    assert [entry["ingredient"] for entry in usual] == ["cibule", "žlutá cibule"]
+
+
+def test_old_input_field_names_are_still_accepted():
+    plan = call("plan_purchase", {"items": [
+        {"name": "cibule", "product_id": 1298821, "price": 29.9, "package_amount": "1 kg",
+         "quantity": 200, "unit": "g"},
+    ], "minimum_order": 0})
+    assert plan["lines"][0]["ingredients"] == ["cibule"]
+
+    remembered = call("record_purchase", {"products": [
+        {"ingredient": "másla", "productId": 1462148, "product_name": "Miil Máslo 82%",
+         "package_amount": "250 g"},
+    ]})["remembered"]
+    assert [(e["ingredient"], e["product_id"]) for e in remembered] == [("másla", 1462148)]
+
+
+def test_tool_schemas_show_only_the_new_field_names():
+    async def run():
+        async with Client(server.mcp) as client:
+            return {tool.name: tool.inputSchema for tool in await client.list_tools()}
+    schemas = asyncio.run(run())
+    item = schemas["plan_purchase"]["properties"]["items"]["items"]
+    product = schemas["record_purchase"]["properties"]["products"]["items"]
+    assert "ingredient" in item["required"] and "name" not in item["properties"]
+    assert "product_name" in item["properties"]
+    assert "ingredients" in product["required"] and "ingredient" not in product["properties"]
+    assert {"product_id", "productId"} <= set(product["properties"])
+
+
+@pytest.mark.parametrize(
+    ("product", "message"),
+    [
+        ({"ingredients": ["másla"], "product_name": "Máslo"},
+         'product 2 ("Máslo") has no product_id or productId'),
+        ({"ingredients": [], "product_id": 2, "product_name": "Máslo"},
+         'product 2 ("Máslo") has no ingredients'),
+    ],
+)
+def test_record_purchase_refuses_a_bad_product_and_stores_nothing(home, product, message):
+    good = {"ingredients": ["cibule"], "product_id": 1, "product_name": "Cibule"}
+    with pytest.raises(ToolError) as error:
+        call("record_purchase", {"products": [good, product]})
+    assert str(error.value) == message
+    assert not home.products_file.exists()

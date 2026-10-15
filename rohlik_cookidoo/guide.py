@@ -18,7 +18,9 @@ places the order themselves.
      `recipes` as {"name", "servings", "ingredients": [{"name", "quantity"}]}.
    - A different number of portions: `target_servings`.
    Never add ingredient amounts up yourself; the tool does it.
-2. Read the result:
+2. Read the result. Every ingredient entry has `ingredient` (the name as the
+   recipe writes it), `quantity` in `unit` and `display`; keep the entry, it
+   goes on to step 4 as it is.
    - `to_buy`: buy these.
    - `at_home`: in the pantry, do not buy. The pantry has no amounts, so point
      out items needed in a large quantity (for example 300 g of butter).
@@ -46,22 +48,26 @@ places the order themselves.
    a product that is out of stock. If nothing fits a diet or a product is sold
    out, offer the closest substitute and say why. Skip tap water.
 4. Read the current cart with the Rohlik connector, then call `plan_purchase`
-   with every chosen product: the ingredient's `quantity` and `unit` from step
-   1, the product's ID, price and package size as Rohlik shows it, plus the
-   cart's lines, its total and its minimum order when it reports one. The tool
-   returns package counts, leftovers, what is still missing from the cart and
-   the totals. Do not calculate any of this yourself. When a line has
-   `exact: false`, read its `note`, use your judgement (three onions against a
-   1 kg net is one package) and call the tool again with `packages` set
-   (`packages: 0` when the user does not want it). Ingredients that share one
-   product need the same price and package size.
+   with one item per ingredient you buy: the ingredient's entry from step 2 plus
+   the chosen product's `productId`, `product_name`, `price` and
+   `package_amount` (the package size as Rohlik shows it). Pass the cart's
+   lines, its total and its minimum order when it reports one. In the cart's
+   lines and in `to_add`, `quantity` is a number of packages, as Rohlik counts
+   it; everywhere else it is the ingredient's amount. The tool returns one line
+   per product with its `ingredients`, package counts, leftovers, what is still
+   missing from the cart and the totals. Do not calculate any of this yourself.
+   When a line has `exact: false`, read its `note`, use your judgement (three
+   onions against a 1 kg net is one package) and call the tool again with
+   `packages` set on its items (`packages: 0` when the user does not want it).
+   Ingredients that share one product need the same price and package size.
 5. Show one table: ingredient, product, package size, packages, price, and the
    totals. Mark what is already in the cart, list what you could not find,
    say how much is missing to the minimum order if any, and mention leftovers
    worth knowing about (most of an opened package of fresh food).
 6. Ask for confirmation. Only after a clear yes, add `to_add` to the cart with
-   the Rohlik connector, report what was added and what failed, and call
-   `record_purchase` with the products that were added.
+   the Rohlik connector as it is, report what was added and what failed, and
+   call `record_purchase` with the `lines` of the products that were added, as
+   `plan_purchase` returned them.
 
 ## Rohlik connector
 
