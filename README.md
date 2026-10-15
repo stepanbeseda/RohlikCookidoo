@@ -109,6 +109,8 @@ docker compose cp app:/data ./zaloha-data    # záloha spíže a paměti
 docker compose logs --tail 50                # když něco nejde
 ```
 
+Spíž a paměť jsou tři soubory v jedné složce: `pantry.txt`, `products.json` a `preferences.json`. Složku určuje proměnná `DATA_DIR` (v Dockeru `/data`, v pluginu jeho datová složka), bez ní je to kořen repozitáře. `PANTRY_PATH` určuje přímo soubor spíže a oba soubory JSON pak leží vedle něj.
+
 | Problém | Řešení |
 |---|---|
 | kontejner `tailscale` se restartuje | neplatný `TS_HOSTNAME` nebo auth key; viz `docker compose logs tailscale` |
