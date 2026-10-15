@@ -95,7 +95,11 @@ def _product_key(ingredient: str) -> str:
 
 
 def _write_atomic(path: Path, text: str) -> None:
-    """Replace `path` with `text` so a reader never sees half a file."""
+    """Replace `path` with `text` so a reader never sees half a file.
+
+    A symlink is followed: the file it points to is replaced, the link stays.
+    """
+    path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     try:

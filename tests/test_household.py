@@ -375,6 +375,28 @@ def test_a_failed_write_leaves_the_file_as_it_was(household, full_disk, operatio
     assert sorted(p.name for p in household.data_dir.iterdir()) == sorted(CURRENT_FILES)
 
 
+@pytest.mark.parametrize(
+    ("operation", "name"),
+    [
+        pytest.param(lambda h: h.update_pantry(always_at_home=["rýže"]), "pantry.txt", id="pantry"),
+        pytest.param(lambda h: h.remember_products([MRKEV]), "products.json", id="remember"),
+        pytest.param(lambda h: h.set_preference("diet", "vegan"), "preferences.json",
+                     id="preference"),
+    ],
+)
+def test_a_write_follows_a_symlinked_file(household, tmp_path, operation, name):
+    write_current_files(household)
+    target = tmp_path / "synced" / name
+    target.parent.mkdir()
+    (household.data_dir / name).rename(target)
+    (household.data_dir / name).symlink_to(target)
+    before = target.read_bytes()
+    operation(household)
+    assert (household.data_dir / name).is_symlink()
+    assert target.read_bytes() != before
+    assert sorted(p.name for p in target.parent.iterdir()) == [name]
+
+
 @pytest.mark.parametrize("content", [b"{not json", b"[1, 2]", b"\xff\xfe"])
 def test_unreadable_json_is_empty_with_a_warning(household, caplog, content):
     household.data_dir.mkdir(parents=True)
