@@ -371,6 +371,11 @@ def test_zero_package_size_is_not_a_size():
     assert counted(plan_one("0 g", 5, "g")) == (1, False, "package size not recognised", None)
 
 
+@pytest.mark.parametrize("package", ["1/0 g", "1 1/0 kg"])
+def test_zero_denominator_in_a_package_size_is_not_a_size(package):
+    assert counted(plan_one(package, 5, "g")) == (1, False, "package size not recognised", None)
+
+
 def test_negative_quantity_is_refused():
     with pytest.raises(PurchasePlanError) as error:
         plan_one("1 kg", -200, "g")

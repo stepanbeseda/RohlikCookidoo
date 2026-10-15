@@ -227,6 +227,9 @@ def _split_number(text: str) -> tuple[float | None, str]:
         text = re.sub(rf"(\d)\s*{symbol}", rf"\1 {fraction}", text).replace(symbol, fraction)
     text = text.strip()
 
+    # "1/0" is not a number, whatever follows
+    if (m := _MIXED.match(text) or _FRACTION.match(text)) and int(m[m.lastindex]) == 0:
+        return None, text
     if m := _MIXED.match(text):
         return int(m[1]) + int(m[2]) / int(m[3]), text[m.end():]
     if m := _FRACTION.match(text):

@@ -164,6 +164,11 @@ class TestAggregateIngredients:
         assert totals == {"hladká mouka": 500, "mléko": 400, "vejce": 7, "sůl": None}
 
 
+def test_zero_denominator_gives_no_amount():
+    ingredient = parse_ingredient("1/0 g mouky")
+    assert (ingredient.quantity, ingredient.unit, ingredient.name) == (None, None, "1/0 g mouky")
+
+
 def test_scale_ingredients():
     scaled = scale_ingredients(parse_ingredients(["300 g mouka", "sůl"]), 4 / 6)
     assert scaled[0].quantity == pytest.approx(200)

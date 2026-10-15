@@ -57,6 +57,10 @@ class TestParseAmount:
         assert parse_amount("podle chuti") == (None, "podle chuti")
         assert parse_amount("") == (None, "")
 
+    @pytest.mark.parametrize("text", ["1/0 g", "1 1/0 g"])
+    def test_zero_denominator_is_not_a_number(self, text):
+        assert parse_amount(text) == (None, text)
+
     def test_rest_is_returned(self):
         assert parse_amount("200 g hladká mouka") == (Amount(200, "g"), "hladká mouka")
 
@@ -109,7 +113,7 @@ class TestParsePackage:
     def test_size(self, text, size):
         assert parse_package(text) == size
 
-    @pytest.mark.parametrize("text", ["", "velké balení", "balení", "10", "0 g", "2 x balení"])
+    @pytest.mark.parametrize("text", ["", "velké balení", "balení", "10", "0 g", "2 x balení", "1/0 g", "1 1/0 kg"])
     def test_no_size(self, text):
         assert parse_package(text) is None
 
