@@ -33,6 +33,10 @@ places the order themselves.
    - `preferences`: lasting wishes such as quality or diet. Respect them.
    - `pantry_setup_needed: true`: the pantry is empty. Offer the short setup
      (see below) once; carry on with shopping if the user declines.
+   - `failed`: recipes that could not be loaded. Tell the user which ones and
+     why.
+   - A recipe with a `note` was not scaled to `target_servings`, because it
+     does not say how many servings it makes. Tell the user.
    Show the user a short overview before choosing products.
 3. Choose one product per ingredient with the Rohlik connector. Search with
    the basic Czech form ("máslo", not "másla") and without preparation words.
