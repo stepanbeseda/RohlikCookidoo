@@ -36,12 +36,19 @@ RECIPES = {
 class FakeCookidoo:
     def __init__(self):
         self.week_offsets = []
+        self.recipe_ids = []
+        self.error = None
 
     async def week(self, week_offset=0):
+        if self.error:
+            raise self.error
         self.week_offsets.append(week_offset)
         return WEEK
 
     async def recipe(self, recipe_id):
+        if self.error:
+            raise self.error
+        self.recipe_ids.append(recipe_id)
         if recipe_id not in RECIPES:
             raise CookidooError(f"Recipe {recipe_id} not found")
         return RECIPES[recipe_id]
@@ -68,10 +75,6 @@ def call(tool, arguments=None):
     return asyncio.run(run())
 
 
-def names(items):
-    return [item["name"] for item in items]
-
-
 def test_server_ships_its_instructions():
     async def run():
         async with Client(server.mcp) as client:
@@ -80,65 +83,48 @@ def test_server_ships_its_instructions():
     assert "prepare_shopping" in call("get_shopping_guide")
 
 
-def test_prepare_shopping_for_the_week(fake, home):
+def test_prepare_shopping_passes_every_argument(fake, home):
     home.update_pantry(always_at_home=["sůl"])
-    result = call("prepare_shopping")
-
-    assert (result["source"], result["week_start"]) == ("week", "2026-10-12")
-    assert names(result["recipes"]) == ["Zelný hrnec", "Polévka"]
-    assert [(i["name"], i["quantity"], i["unit"]) for i in result["to_buy"]] == [
-        ("cibule", 300, "g"), ("másla", 50, "g"),
+    result = call("prepare_shopping", {
+        "recipe_ids": ["r1"],
+        "recipes": [{"name": "Palačinky", "servings": 4, "ingredients": [
+            {"name": "hladká mouka", "quantity": "200 g"},
+        ]}],
+        "target_servings": 3,
+    })
+    assert [(r["name"], r["servings"]) for r in result["recipes"]] == [
+        ("Zelný hrnec", 3), ("Palačinky", 3),
     ]
-    assert names(result["at_home"]) == ["soli"]
+    assert ("hladká mouka", 150) in [(i["name"], i["quantity"]) for i in result["to_buy"]]
     assert result["pantry_setup_needed"] is False
-    assert result["failed"] == []
-    assert fake.week_offsets == [0]
+    assert fake.week_offsets == []
 
-
-def test_a_pantry_of_only_ask_first_items_needs_no_setup(fake, home):
-    home.update_pantry(ask_first=["máslo"])
-    assert call("prepare_shopping")["pantry_setup_needed"] is False
-
-
-def test_prepare_shopping_next_week_and_empty_pantry(fake):
     result = call("prepare_shopping", {"week_offset": 1})
     assert fake.week_offsets == [1]
-    assert result["pantry_setup_needed"] is True
-    assert len(result["to_buy"]) == 3
+    assert result["source"] == "week"
 
 
-def test_prepare_shopping_for_given_recipes_skips_the_calendar(fake):
-    result = call("prepare_shopping", {"recipe_ids": ["r1"], "target_servings": 3})
-    assert fake.week_offsets == []
-    assert result["source"] == "recipes"
-    assert result["recipes"] == [{"id": "r1", "name": "Zelný hrnec", "servings": 3, "url": "u1"}]
-    assert [(i["name"], i["quantity"]) for i in result["to_buy"]] == [("cibule", 100), ("másla", 25)]
+@pytest.mark.parametrize(
+    ("tool", "arguments"),
+    [
+        ("prepare_shopping", {}),
+        ("get_planned_recipes", {"week_offset": 1}),
+        ("get_recipe_details", {"recipe_id": "r1"}),
+    ],
+)
+def test_cookidoo_errors_reach_the_model_as_tool_errors(fake, tool, arguments):
+    fake.error = CookidooError("Cookidoo request failed: boom")
+    with pytest.raises(ToolError) as error:
+        call(tool, arguments)
+    # The whole text: an unmapped error would arrive with an "Error calling tool" prefix.
+    assert str(error.value) == "Cookidoo request failed: boom"
 
 
-def test_prepare_shopping_with_a_recipe_from_the_web_needs_no_cookidoo(fake):
-    recipe = {"name": "Palačinky", "servings": 4, "ingredients": [
-        {"name": "hladká mouka", "quantity": "200 g"}, {"name": "vejce", "quantity": "2"},
-    ]}
-    result = call("prepare_shopping", {"recipes": [recipe]})
-    assert fake.week_offsets == []
-    assert [(i["name"], i["display"]) for i in result["to_buy"]] == [
-        ("hladká mouka", "200 g"), ("vejce", "2 ks"),
-    ]
-
-
-def test_prepare_shopping_reports_a_recipe_that_failed(fake):
-    result = call("prepare_shopping", {"recipe_ids": ["r1", "r404"]})
-    assert names(result["recipes"]) == ["Zelný hrnec"]
-    assert result["failed"] == [{"id": "r404", "error": "Recipe r404 not found"}]
-
-
-def test_prepare_shopping_returns_preferences_and_usual_products(fake, home):
-    home.set_preference("quality", "bio")
-    home.remember_products([{"ingredient": "cibule", "product_id": 1298821,
-                             "product_name": "Cibule žlutá, síť", "package_amount": "1 kg"}])
-    result = call("prepare_shopping")
-    assert result["preferences"] == {"quality": "bio"}
-    assert result["to_buy"][0]["usual_product"]["product_id"] == 1298821
+def test_prepare_shopping_refuses_target_servings_below_one(fake):
+    with pytest.raises(ToolError) as error:
+        call("prepare_shopping", {"recipe_ids": ["r1"], "target_servings": 0})
+    assert str(error.value) == "target_servings must be 1 or more, not 0"
+    assert fake.recipe_ids == []
 
 
 def test_update_pantry_adds_switches_and_removes():

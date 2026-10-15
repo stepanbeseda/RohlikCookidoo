@@ -25,11 +25,11 @@ MCP_TRANSPORT=http to serve remote clients:
                      are refused
 """
 
-import asyncio
 import logging
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import NotRequired, TypedDict
 
 from fastmcp import FastMCP
@@ -42,7 +42,7 @@ from rohlik_cookidoo.cart import plan_purchase as plan_purchase_core
 from rohlik_cookidoo.cookidoo import CookidooClient, CookidooError
 from rohlik_cookidoo.guide import INSTRUCTIONS, QUESTIONNAIRE_CATEGORIES, QUESTIONNAIRE_STEPS
 from rohlik_cookidoo.household import Household
-from rohlik_cookidoo.shopping import Recipe, build_shopping_list
+from rohlik_cookidoo.shopping import Recipe, ShoppingError, prepare
 
 mcp = FastMCP("rohlik-cookidoo", instructions=INSTRUCTIONS)
 cookidoo = CookidooClient()
@@ -55,6 +55,19 @@ def current_household() -> Household:
     if household is None:
         household = Household.from_env(os.environ)
     return household
+
+
+# Errors whose message tells the model what to fix; anything else is a bug
+_TOOL_ERRORS = (CookidooError, PurchasePlanError, ShoppingError)
+
+
+@contextmanager
+def _tool_errors() -> Iterator[None]:
+    """Hand an error the model can act on to it as a ToolError with the same message."""
+    try:
+        yield
+    except _TOOL_ERRORS as e:
+        raise ToolError(str(e)) from e
 
 
 class PurchaseItem(TypedDict):
@@ -81,68 +94,6 @@ class BoughtProduct(TypedDict):
     package_amount: NotRequired[str]
 
 
-async def collect_recipes(
-    client: CookidooClient,
-    week_offset: int = 0,
-    recipe_ids: list[str] | None = None,
-    recipes: list[Recipe] | None = None,
-    target_servings: int | None = None,
-) -> dict:
-    """Gather the recipes to shop for: given ones, Cookidoo IDs, or the weekly plan."""
-    source: dict = {"source": "recipes"}
-    ids = list(recipe_ids or [])
-    if not ids and not recipes:
-        week = await client.week(week_offset)
-        source = {"source": "week", "week_start": week["week_start"]}
-        ids = [recipe["id"] for day in week["days"] for recipe in day["recipes"]]
-
-    fetched = await asyncio.gather(
-        *(client.recipe(recipe_id) for recipe_id in ids), return_exceptions=True
-    )
-    collected, failed = [], []
-    for recipe_id, outcome in zip(ids, fetched, strict=True):
-        if isinstance(outcome, CookidooError):
-            failed.append({"id": recipe_id, "error": str(outcome)})
-        elif isinstance(outcome, BaseException):
-            raise outcome
-        else:
-            collected.append(outcome)
-    collected.extend(recipes or [])
-
-    if target_servings:
-        collected = [{**recipe, "target_servings": target_servings} for recipe in collected]
-    return {**source, "recipes": collected, "failed": failed}
-
-
-async def prepare(
-    client: CookidooClient,
-    household: Household,
-    week_offset: int = 0,
-    recipe_ids: list[str] | None = None,
-    recipes: list[Recipe] | None = None,
-    target_servings: int | None = None,
-) -> dict:
-    """Collect recipes and build the shopping list with everything the model needs."""
-    collected = await collect_recipes(client, week_offset, recipe_ids, recipes, target_servings)
-    shopping = build_shopping_list(collected["recipes"], household)
-    pantry = household.pantry()
-    return {
-        **{key: value for key, value in collected.items() if key != "recipes"},
-        "recipes": [
-            {
-                "id": recipe.get("id"),
-                "name": recipe["name"],
-                "servings": recipe.get("target_servings") or recipe.get("servings"),
-                "url": recipe.get("url"),
-            }
-            for recipe in collected["recipes"]
-        ],
-        **shopping,
-        "preferences": household.preferences(),
-        "pantry_setup_needed": not (pantry["always_at_home"] or pantry["ask_first"]),
-    }
-
-
 @mcp.tool()
 async def prepare_shopping(
     week_offset: int = 0,
@@ -156,21 +107,25 @@ async def prepare_shopping(
     this week (`week_offset: 1` for next week). Pass `recipe_ids` for specific
     Cookidoo recipes, or `recipes` for recipes you read elsewhere, each as
     {"name", "servings", "ingredients": [{"name", "quantity"}]}. Set
-    `target_servings` to cook a different number of portions.
+    `target_servings` (1 or more) to cook a different number of portions.
 
     Returns the `recipes` used and three ingredient lists with summed amounts:
-    `to_buy`, `check_at_home` (see `check_reason`) and `at_home`. Ingredients
-    may carry `usual_product`, what the user bought for them last time. Also
-    returns the user's `preferences`, `failed` recipes and
-    `pantry_setup_needed`. Ingredient names keep the recipe's form (often the
-    Czech genitive, "másla").
+    `to_buy`, `check_at_home` (see `check_reason`) and `at_home`. A recipe that
+    does not say how many servings it makes is not scaled and carries a `note`.
+    Ingredients may carry `usual_product`, what the user bought for them last
+    time. Also returns the user's `preferences`, the `failed` recipes with the
+    reason, and `pantry_setup_needed`. Ingredient names keep the recipe's form
+    (often the Czech genitive, "másla").
     """
-    try:
+    with _tool_errors():
         return await prepare(
-            cookidoo, current_household(), week_offset, recipe_ids, recipes, target_servings
+            cookidoo,
+            current_household(),
+            week_offset=week_offset,
+            recipe_ids=recipe_ids,
+            recipes=recipes,
+            target_servings=target_servings,
         )
-    except CookidooError as e:
-        raise ToolError(str(e)) from e
 
 
 @mcp.tool()
@@ -198,10 +153,8 @@ def plan_purchase(
     add-to-cart tool; `missing_to_minimum` above zero means the order is below
     the minimum.
     """
-    try:
+    with _tool_errors():
         return plan_purchase_core(items, cart, cart_total, minimum_order)
-    except PurchasePlanError as e:
-        raise ToolError(str(e)) from e
 
 
 @mcp.tool()
@@ -226,19 +179,15 @@ async def get_planned_recipes(week_offset: int = 0) -> dict:
     `week_offset`: 0 this week, 1 next week, -1 last week. For shopping use
     `prepare_shopping`; this is for looking at the plan.
     """
-    try:
+    with _tool_errors():
         return await cookidoo.week(week_offset)
-    except CookidooError as e:
-        raise ToolError(str(e)) from e
 
 
 @mcp.tool()
 async def get_recipe_details(recipe_id: str) -> dict:
     """Get one Cookidoo recipe with its ingredients and number of servings."""
-    try:
+    with _tool_errors():
         return await cookidoo.recipe(recipe_id)
-    except CookidooError as e:
-        raise ToolError(str(e)) from e
 
 
 @mcp.tool()
