@@ -344,12 +344,9 @@ rounds.
 
 ## 5. Open items
 
-- After PR 06: a release commit bumping the version in `pyproject.toml`,
-  `.claude-plugin/plugin.json` and `uv.lock` (0.7.1 → 0.8.0), then the user
-  redeploys the live server.
-- The main checkout's `.git/index` is owned by root
-  (`sudo chown ubuntu:ubuntu .git/index`); until then MAO runs work in
-  worktrees.
+- After the 0.8.0 redeploy: one test purchase on claude.ai in a new
+  conversation, up to `plan_purchase` and `to_add`, to confirm the live model
+  follows PR 06's `INSTRUCTIONS`.
 - Follow-up after 0.8.0: drop PR 06's old input aliases (`name` on plan items,
   `ingredient` on bought products, `_listed`) from `server.py` in the release
   after 0.8.0. Source: `PR-06-review-1.md` (Other 5), `PR-06-pr-body.md`.
