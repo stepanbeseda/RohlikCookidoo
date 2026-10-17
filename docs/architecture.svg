@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 330" role="img" aria-label="Claude volá dva konektory: server Kitchen počítá nákup z Cookidoo a ze spíže, server Rohlik plní košík. Kitchen se k košíku nedostane.">
+  <style>
+    .fg { color: #1f2328; }
+    .box { fill: none; stroke: currentColor; stroke-width: 1.5; }
+    .hot { fill: none; stroke: #2f6fdb; stroke-width: 2.5; }
+    .store { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-dasharray: 5 4; }
+    .edge { fill: none; stroke: currentColor; stroke-width: 1.5; }
+    .edge-hot { fill: none; stroke: #2f6fdb; stroke-width: 2; }
+    text { fill: currentColor; font: 13px system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .sub { font-size: 11px; opacity: .75; }
+    .lbl { font-size: 11px; }
+    .mid { text-anchor: middle; }
+    @media (prefers-color-scheme: dark) { .fg { color: #e6edf3; } .hot { stroke: #6ea8ff; } .edge-hot { stroke: #6ea8ff; } }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <g class="fg">
+    <!-- actors -->
+    <rect class="box" x="20" y="138" width="110" height="60" rx="30"/>
+    <text class="mid" x="75" y="173">Ty</text>
+    <rect class="box" x="190" y="128" width="150" height="80" rx="8"/>
+    <text class="mid" x="265" y="164">Claude</text>
+    <text class="sub mid" x="265" y="182">telefon, web, desktop</text>
+    <line class="edge" x1="130" y1="168" x2="188" y2="168" marker-end="url(#arrow)"/>
+    <text class="lbl mid" x="160" y="158">zadání</text>
+
+    <!-- Kitchen branch -->
+    <path class="edge" d="M265 126 V70 H398" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+    <text class="lbl" x="275" y="62">konektor Kitchen (MCP)</text>
+    <rect class="box" x="400" y="44" width="120" height="52" rx="8"/>
+    <text class="mid" x="460" y="66">Tailscale</text>
+    <text class="mid" x="460" y="83">Funnel</text>
+    <line class="edge" x1="520" y1="70" x2="578" y2="70" marker-end="url(#arrow)"/>
+    <text class="lbl mid" x="549" y="60">HTTPS</text>
+    <rect class="hot" x="580" y="40" width="140" height="60" rx="8"/>
+    <text class="mid" x="650" y="66">Kitchen server</text>
+    <text class="sub mid" x="650" y="84">na tvém VPS · počítá</text>
+    <path class="edge" d="M720 60 H740 V36 H758" marker-end="url(#arrow)"/>
+    <path class="edge" d="M720 80 H740 V104 H758" marker-end="url(#arrow)"/>
+    <rect class="store" x="760" y="14" width="100" height="44" rx="8"/>
+    <text class="mid" x="810" y="33">Cookidoo</text>
+    <text class="sub mid" x="810" y="49">jídelníček, recepty</text>
+    <rect class="store" x="760" y="82" width="100" height="44" rx="8"/>
+    <text class="mid" x="810" y="101">Tvá data</text>
+    <text class="sub mid" x="810" y="117">spíž, produkty, pref.</text>
+
+    <!-- Rohlik branch -->
+    <path class="edge" d="M265 210 V270 H398" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+    <text class="lbl" x="275" y="262">konektor Rohlik</text>
+    <rect class="box" x="400" y="244" width="140" height="52" rx="8"/>
+    <text class="mid" x="470" y="266">Rohlik server</text>
+    <text class="sub mid" x="470" y="283">mcp.rohlik.cz</text>
+    <line class="edge-hot" x1="540" y1="270" x2="618" y2="270" marker-end="url(#arrow)"/>
+    <text class="lbl mid" x="579" y="260">plní</text>
+    <rect class="store" x="620" y="244" width="130" height="52" rx="8"/>
+    <text class="mid" x="685" y="266">Košík</text>
+    <text class="sub mid" x="685" y="283">na Rohlíku</text>
+
+    <!-- the missing edge -->
+    <text class="sub" x="580" y="170">Kitchen košík nevidí ani neplní:</text>
+    <text class="sub" x="580" y="186">produkty a košík řeší jen Claude přes Rohlik.</text>
+  </g>
+</svg>

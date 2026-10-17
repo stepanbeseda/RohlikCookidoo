@@ -13,16 +13,7 @@ Výpočty dělá kód, takže jsou stejné pokaždé. Jak dobře asistent radí 
 
 ## Jak to funguje
 
-```mermaid
-flowchart LR
-    you([Ty]) --> claude[Claude<br>telefon, web, desktop]
-    claude -- konektor Kitchen --> funnel[Tailscale Funnel]
-    funnel --> kitchen[kitchen server<br>na tvém VPS]
-    kitchen --> cookidoo[(Cookidoo<br>jídelníček, recepty)]
-    kitchen --> data[(spíž, obvyklé produkty,<br>preference)]
-    claude -- konektor Rohlik --> rohlik[mcp.rohlik.cz]
-    rohlik --> cart[(košík<br>na Rohlíku)]
-```
+![Claude volá dva konektory: Kitchen počítá nákup z Cookidoo a ze spíže, Rohlik plní košík. Kitchen se k košíku nedostane.](docs/architecture.svg)
 
 - **Kitchen** (tento projekt) počítá: součty surovin, spíž, počet balení, cenu, co v košíku chybí.
 - **Rohlik** (oficiální server Rohlíku) hledá produkty a plní košík. Přihlašuješ se k němu v prohlížeči, heslo nikam nezadáváš.
