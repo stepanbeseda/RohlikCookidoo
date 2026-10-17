@@ -6,7 +6,7 @@ Nákupní pomocník pro **Cookidoo** a **Rohlik.cz**. Řekneš, co chceš vařit
 - **Nákup podle receptu.** Jeden recept z Cookidoo nebo z libovolného webu, přepočítaný na tvůj počet porcí.
 - **Poradce při nákupu.** Vybírá produkty podle tvých preferencí, navrhuje náhrady, hlídá diety, upozorní na zbytky i na minimální objednávku a pamatuje si, co obvykle kupuješ.
 
-Výpočty dělá kód, takže jsou stejné pokaždé. Jak dobře asistent radí a vybírá produkty, záleží na modelu, který používáš. Vyzkoušené je to s Claude; servery mluví protokolem MCP, takže je může použít i jiný klient, který ho umí.
+Výpočty dělá kód, takže jsou stejné pokaždé. Jak dobře asistent radí a vybírá produkty, záleží na modelu, který používáš. Vyzkoušené je to s Claudem. Oba servery používají protokol MCP, takže si je může připojit i jiný klient, který ho podporuje.
 
 > Neoficiální osobní projekt, bez vazby na Rohlik, Vorwerk, Thermomix ani Cookidoo.
 > Objednávku nikdy neodesílá. Plní jen košík, odeslání potvrzuješ ty.
@@ -30,7 +30,7 @@ flowchart LR
 
 ## Nasazení
 
-Potřebuješ VPS s Dockerem, účet Tailscale, Cookidoo a Rohlik.
+Potřebuješ VPS s Dockerem a účty u Tailscale, Cookidoo a Rohlíku.
 
 **1. Tailscale** – v [administraci](https://login.tailscale.com/admin):
 
@@ -64,7 +64,7 @@ docker compose up -d --build
 docker compose exec tailscale tailscale funnel status
 ```
 
-Druhý příkaz vypíše tvou adresu. Na `https://ADRESA/health` má být `ok` (první certifikát může trvat až deset minut).
+Druhý příkaz vypíše tvou adresu. Na `https://ADRESA/health` má být `ok` (vydání prvního certifikátu může trvat až deset minut).
 
 **3. Claude** – v **Settings → Connectors → Add custom connector** přidej:
 
@@ -90,9 +90,9 @@ Hotovo. Napiš Claudovi „nakup mi na tento týden“.
 | „vždycky ber BIO“ / „nejím lepek“ | trvalá preference |
 | „tu smetanu už nekupuj“ | zapomene obvyklý produkt |
 
-Při prvním nákupu ti Claude nabídne dotazník na spíž. Po každém potvrzeném nákupu si pamatuje, které produkty jsi koupil, a příště je nabídne jako první.
+Při prvním nákupu ti Claude nabídne dotazník na spíž. Po každém potvrzeném nákupu si zapamatuje koupené produkty a příště je nabídne jako první.
 
-Poslední tři řádky tabulky jsou příklady rad, které stojí na úsudku modelu a na nástrojích Rohlíku. Kód tohoto projektu je nepočítá, takže se jejich kvalita bude lišit model od modelu.
+Levnější varianty, složení a slevy jsou rady, které stojí na úsudku modelu a na nástrojích Rohlíku. Kód tohoto projektu je neřeší, takže se jejich kvalita bude lišit model od modelu.
 
 ## Bezpečnost
 
@@ -108,6 +108,8 @@ git pull && docker compose up -d --build     # aktualizace
 docker compose cp app:/data ./zaloha-data    # záloha spíže a paměti
 docker compose logs --tail 50                # když něco nejde
 ```
+
+Po aktualizaci otevři v Claude nový rozhovor. Rozběhnutý rozhovor dál používá nástroje ve tvaru, v jakém je dostal na začátku.
 
 Spíž a paměť jsou tři soubory v jedné složce: `pantry.txt`, `products.json` a `preferences.json`. Složku určuje proměnná `DATA_DIR` (v Dockeru `/data`, v pluginu jeho datová složka), bez ní je to kořen repozitáře. `PANTRY_PATH` určuje přímo soubor spíže a oba soubory JSON pak leží vedle něj.
 
@@ -133,7 +135,7 @@ docker compose -f docker-compose.caddy.yml up -d --build
 <details>
 <summary>Jen v tailnetu, bez veřejné adresy</summary>
 
-V `tailscale/funnel.json` smaž blok `AllowFunnel`. Server pak uvidí jen zařízení ve tvém tailnetu. Funguje v Claude Desktop a Claude Code na počítači, **v telefonu ne**: konektory v telefonu volají servery Anthropicu, které ve tvém tailnetu nejsou.
+V `tailscale/funnel.json` smaž blok `AllowFunnel`. Server pak bude dostupný jen ze zařízení ve tvém tailnetu. Funguje v Claude Desktop a Claude Code na počítači, **v telefonu ne**: konektory v telefonu volají servery Anthropicu, které ve tvém tailnetu nejsou.
 </details>
 
 <details>
@@ -144,6 +146,13 @@ Vyžaduje [uv](https://docs.astral.sh/uv/). Plugin se zeptá na přihlášení k
 ```
 /plugin marketplace add stepanbeseda/RohlikCookidoo
 /plugin install rohlik-cookidoo@rohlik-cookidoo
+```
+
+Aktualizace na novou verzi (v terminálu, pak Claude Code restartuj):
+
+```bash
+claude plugin marketplace update rohlik-cookidoo
+claude plugin update rohlik-cookidoo@rohlik-cookidoo
 ```
 </details>
 

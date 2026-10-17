@@ -340,13 +340,10 @@ rounds.
 - `to_add` uses `productId` (Rohlik's `add_items_to_cart` requires it); this output change is not named in the chapter.
 - `README.md` and `skills/*/SKILL.md` are unchanged: they name no tool field, so there is no old shape to correct.
 - Old input names are still accepted for one release (`name` on plan items, a single `ingredient` on bought products, `_listed`) and absent from the tool schema.
-- Not verifiable offline: a live model on claude.ai following the new `INSTRUCTIONS` against the real Rohlik connector, after the 0.8.0 release and redeploy.
+- Verified live after the 0.8.0 release and redeploy (2026-10-17): a test purchase on claude.ai in a new conversation, through `plan_purchase` and `to_add`, with the real Rohlik connector.
 
 ## 5. Open items
 
-- After the 0.8.0 redeploy: one test purchase on claude.ai in a new
-  conversation, up to `plan_purchase` and `to_add`, to confirm the live model
-  follows PR 06's `INSTRUCTIONS`.
 - Follow-up after 0.8.0: drop PR 06's old input aliases (`name` on plan items,
   `ingredient` on bought products, `_listed`) from `server.py` in the release
   after 0.8.0. Source: `PR-06-review-1.md` (Other 5), `PR-06-pr-body.md`.
