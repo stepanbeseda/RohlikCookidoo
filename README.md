@@ -1,5 +1,7 @@
 # RohlikCookidoo
 
+*A Czech shopping assistant: an MCP server that turns Cookidoo (Thermomix) meal plans and recipes into a Rohlik.cz shopping cart. The documentation is in Czech.*
+
 Nákupní pomocník pro **Cookidoo** a **Rohlik.cz**. Řekneš, co chceš vařit, a asistent ti připraví košík. Funguje i z telefonu.
 
 - **Nákup podle jídelníčku.** Přečte týdenní plán z Cookidoo, sečte suroviny, odečte, co máš doma, a zbytek dá do košíku.
